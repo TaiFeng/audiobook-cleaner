@@ -1,0 +1,45 @@
+# ============================================================
+# Banned Words List — Audiobook Cleaner
+# ============================================================
+# One word or short phrase per line.  Case-insensitive.
+# Lines starting with # are comments.
+#
+# These words trigger INSTANT muting at the word level,
+# independent of the AI chunk classifier.
+#
+# Adjust to your family's standards.  The list below is a
+# conservative starting point.
+# ============================================================
+
+# --- Strong profanity ---
+fuck
+fucking
+fucker
+motherfucker
+shit
+shitting
+bullshit
+horseshit
+bitch
+asshole
+bastard
+cunt
+dick
+piss
+pissed
+cocksucker
+goddamn
+goddammit
+
+# --- Slurs (always mute) ---
+# Add any slurs relevant to your content here.
+# We intentionally do not ship a slur list but recommend
+# including any that appear in your audiobook library.
+
+# --- Mild profanity (uncomment for strict filtering) ---
+# damn
+# hell
+# crap
+# ass
+# suck
+# sucks

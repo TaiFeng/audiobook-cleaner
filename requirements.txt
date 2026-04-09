@@ -1,0 +1,34 @@
+# ============================================================
+# Audiobook Cleaner — Python Dependencies
+# ============================================================
+# Install:  pip install -r requirements.txt
+#
+# NOTE: WhisperX has its own dependency chain including PyTorch.
+# See README.md for the recommended install order on Windows.
+# ============================================================
+
+# --- Core (always required) ----------------------------------
+PyYAML>=6.0
+requests>=2.28
+
+# --- Transcription -------------------------------------------
+# Install WhisperX AFTER PyTorch (see README for GPU setup):
+#   pip install whisperx
+# Uncomment below if you want pip to pull it automatically:
+# whisperx>=3.1
+
+# --- Testing -------------------------------------------------
+pytest>=7.0
+
+# ============================================================
+# PyTorch — install separately for your hardware:
+#
+#   GPU (CUDA 11.8):
+#     pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu118
+#
+#   GPU (CUDA 12.1):
+#     pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu121
+#
+#   CPU only:
+#     pip install torch torchaudio --index-url https://download.pytorch.org/whl/cpu
+# ============================================================

@@ -1,0 +1,70 @@
+# ============================================================
+# Audiobook Cleaner — Configuration
+# ============================================================
+# Copy this file and edit to taste.  CLI flags override values
+# set here (e.g.  --sensitivity strict).
+
+# --- Transcription (WhisperX) --------------------------------
+transcription:
+  model: "large-v2"        # Options: tiny, base, small, medium, large-v2, large-v3
+  device: "cuda"            # "cuda" (GPU) or "cpu"
+  compute_type: "float16"   # "float16" (GPU), "int8" (faster/lower VRAM), "float32" (CPU)
+  language: "en"
+  batch_size: 16             # Lower this if you run out of VRAM (try 4 or 8)
+
+# --- Chunking ------------------------------------------------
+chunking:
+  chunk_size: 800            # Target words per chunk sent to the classifier
+  overlap: 200               # Words of overlap between adjacent chunks
+  min_chunk_size: 300        # Minimum words (smaller remnants merge into previous chunk)
+  max_chunk_size: 1500       # Hard ceiling
+
+# --- Profanity (word-level) ----------------------------------
+profanity:
+  enabled: true
+  banned_words_file: "banned_words.txt"
+  padding_seconds: 0.3       # Seconds of silence added each side of a banned word
+
+# --- AI Classification --------------------------------------
+classification:
+  # OpenAI
+  api_base: "https://api.openai.com/v1"
+  api_key: ""                # Set via env var OPENAI_API_KEY or paste here
+
+  # -- OR -- LM Studio (uncomment below, comment out OpenAI above)
+  # api_base: "http://localhost:1234/v1"
+  # api_key: "not-needed"
+
+  # -- OR -- Ollama (uncomment below)
+  # api_base: "http://localhost:11434/v1"
+  # api_key: "not-needed"
+
+  model: "gpt-4o-mini"       # or your local model name
+  temperature: 0.1           # Low temp = more deterministic classifications
+  max_concurrent: 4          # Parallel API requests (lower for local models)
+  timeout: 60                # Per-request timeout in seconds
+  retry_attempts: 3
+  retry_delay: 2.0           # Seconds between retries (multiplied by attempt number)
+
+# --- Sensitivity ---------------------------------------------
+# Choose: "strict", "moderate", or "minimal"
+sensitivity: "moderate"
+
+# Per-level thresholds (you can fine-tune these)
+thresholds:
+  strict:
+    min_confidence: 0.3
+    min_severity: "mild"
+  moderate:
+    min_confidence: 0.5
+    min_severity: "moderate"
+  minimal:
+    min_confidence: 0.7
+    min_severity: "severe"
+
+# --- Output --------------------------------------------------
+output:
+  mode: "mute"               # "mute" (silence ranges) or "remove" (cut ranges)
+  padding_seconds: 0.5       # Extra seconds added before/after each flagged range
+  format: null               # null = keep input format; or force "mp3" / "m4b"
+  report_format: "both"      # "csv", "json", or "both"
