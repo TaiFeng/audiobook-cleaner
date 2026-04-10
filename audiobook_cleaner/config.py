@@ -78,6 +78,10 @@ class OutputConfig:
     padding_seconds: float = 0.0  # padding added around each flagged range (0.0 = word-precise)
     format: Optional[str] = None  # None = same as input; or "mp3" / "m4b"
     report_format: str = "both"   # "csv", "json", or "both"
+    # Encoding overrides — None means auto-detect from the source file
+    bitrate: Optional[str] = None        # e.g. "64k"  — overrides probed bitrate
+    sample_rate: Optional[int] = None    # e.g. 44100  — overrides probed sample rate
+    channels: Optional[int] = None       # e.g. 1      — overrides probed channel count
 
 
 # ---------------------------------------------------------------------------

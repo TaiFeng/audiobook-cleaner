@@ -72,3 +72,14 @@ output:
                               # Set to 0.25–1.0 if you want a safety buffer around scenes.
   format: null               # null = keep input format; or force "mp3" / "m4b"
   report_format: "both"      # "csv", "json", or "both"
+
+  # --- Encoding (null = auto-detect from source file) ----------
+  # By default the tool probes the input file with ffprobe and mirrors
+  # its bitrate, sample rate, and channel count so the output size
+  # stays proportional to the original.  Override only when needed.
+  #
+  # To inspect what the tool detected, run with -v and look for the
+  # "Source audio probed" and "Output encoding" log lines.
+  bitrate: null        # e.g. "64k"  — common audiobook values: 32k, 48k, 64k, 128k
+  sample_rate: null    # e.g. 22050  — common audiobook values: 22050, 44100
+  channels: null       # e.g. 1 (mono, typical for audiobooks) or 2 (stereo)

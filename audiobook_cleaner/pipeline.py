@@ -95,6 +95,9 @@ class Pipeline:
             inp, output_path, merged,
             mode=self.config.output.mode,
             output_format=self.config.output.format,
+            bitrate=self.config.output.bitrate,
+            sample_rate=self.config.output.sample_rate,
+            channels=self.config.output.channels,
         )
         logger.info("Done!  Cleaned file: %s", output_path)
 
@@ -174,7 +177,13 @@ class Pipeline:
             suffix = inp.suffix
             output_path = str(inp.parent / f"{inp.stem}_clean{suffix}")
 
-        apply_edits(inp, output_path, ranges, mode=mode)
+        apply_edits(
+            inp, output_path, ranges,
+            mode=mode,
+            bitrate=self.config.output.bitrate,
+            sample_rate=self.config.output.sample_rate,
+            channels=self.config.output.channels,
+        )
         logger.info("Cleaned file: %s", output_path)
 
     # -----------------------------------------------------------------

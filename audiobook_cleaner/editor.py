@@ -3,7 +3,11 @@ Audio editing via FFmpeg — mute or remove flagged time ranges.
 
 Public API
 ----------
-apply_edits(input_path, output_path, ranges, mode, output_format)
+probe_audio(input_path) -> dict
+    Read codec, bitrate, sample rate, and channel count from a source file.
+apply_edits(input_path, output_path, ranges, mode, output_format,
+            bitrate, sample_rate, channels)
+    Apply edits; encoding parameters default to probed source values.
 write_edl(ranges, path)
 """
 
@@ -42,6 +46,132 @@ def _get_duration(path: Path) -> float:
     ]
     result = subprocess.run(cmd, capture_output=True, text=True, check=True)
     return float(result.stdout.strip())
+
+
+def probe_audio(path: Path) -> dict:
+    """
+    Read audio stream properties from *path* using ffprobe.
+
+    Combines stream-level entries (codec, sample_rate, channels) with the
+    format-level bit_rate, which is more reliable for VBR-encoded files
+    because it is computed from file size / duration rather than from
+    in-stream metadata that may be absent or set to zero.
+
+    Returns a dict with string values for the keys:
+      codec_name, bit_rate (bps), sample_rate (Hz), channels
+    Returns an empty dict on failure so callers can fall back gracefully.
+    """
+    cmd = [
+        "ffprobe", "-v", "error",
+        "-select_streams", "a:0",
+        "-show_entries",
+        "stream=codec_name,bit_rate,sample_rate,channels:format=bit_rate",
+        "-of", "json",
+        str(path),
+    ]
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        data = json.loads(result.stdout)
+
+        info: dict = {}
+        streams = data.get("streams", [])
+        if streams:
+            info.update(streams[0])
+
+        # Many VBR MP3 files report bit_rate="0" at the stream level.
+        # The format-level value (file_size * 8 / duration) is always accurate.
+        fmt_br = (data.get("format") or {}).get("bit_rate")
+        stream_br = info.get("bit_rate", "0")
+        if fmt_br and (not stream_br or stream_br == "0"):
+            info["bit_rate"] = fmt_br
+
+        logger.info(
+            "Source audio probed: codec=%s  bitrate=%s bps  "
+            "sample_rate=%s Hz  channels=%s",
+            info.get("codec_name", "?"),
+            info.get("bit_rate",  "?"),
+            info.get("sample_rate", "?"),
+            info.get("channels",  "?"),
+        )
+        return info
+
+    except Exception as exc:
+        logger.warning(
+            "ffprobe failed for %s: %s — using codec defaults for output.",
+            path.name, exc,
+        )
+        return {}
+
+
+def _build_codec_args(
+    probe: dict,
+    output_suffix: str,
+    bitrate_override: Optional[str] = None,
+    sample_rate_override: Optional[int] = None,
+    channels_override: Optional[int] = None,
+) -> List[str]:
+    """
+    Build FFmpeg audio codec arguments that mirror the source file's encoding.
+
+    Priority for each parameter:
+      CLI / config override  →  probed value  →  per-codec fallback default
+
+    Parameters
+    ----------
+    probe            : dict returned by probe_audio()
+    output_suffix    : file extension including dot, e.g. ".mp3"
+    bitrate_override : e.g. "64k" — bypasses auto-detection
+    sample_rate_override : e.g. 44100 — bypasses auto-detection
+    channels_override    : e.g. 1 (mono) — bypasses auto-detection
+    """
+    args: List[str] = []
+
+    # --- Sample rate ---
+    sr = sample_rate_override
+    if sr is None and probe.get("sample_rate"):
+        sr = int(probe["sample_rate"])
+    if sr:
+        args += ["-ar", str(sr)]
+
+    # --- Channels ---
+    ch = channels_override
+    if ch is None and probe.get("channels"):
+        ch = int(probe["channels"])
+    if ch:
+        args += ["-ac", str(ch)]
+
+    # --- Bitrate — convert bps string → kbps string ---
+    if bitrate_override:
+        # Accept both "64" and "64k"
+        br_str = bitrate_override if bitrate_override.endswith("k") else f"{bitrate_override}k"
+    elif probe.get("bit_rate") and probe["bit_rate"] not in ("0", ""):
+        br_kbps = max(1, int(float(probe["bit_rate"])) // 1000)
+        br_str = f"{br_kbps}k"
+    else:
+        br_str = None  # fall through to per-codec default below
+
+    # --- Codec selection + bitrate application ---
+    if output_suffix == ".mp3":
+        args += ["-c:a", "libmp3lame"]
+        if br_str:
+            args += ["-b:a", br_str]      # CBR matching source
+        else:
+            args += ["-q:a", "4"]         # VBR ~128 kbps fallback
+    elif output_suffix in (".m4b", ".m4a", ".aac"):
+        args += ["-c:a", "aac"]
+        args += ["-b:a", br_str or "64k"]
+    else:
+        if br_str:
+            args += ["-b:a", br_str]      # best-effort for other containers
+
+    logger.info(
+        "Output encoding: codec=%s  bitrate=%s  sample_rate=%s Hz  channels=%s",
+        output_suffix.lstrip("."),
+        br_str or "default",
+        sr or "default",
+        ch or "default",
+    )
+    return args
 
 
 # ---------------------------------------------------------------------------
@@ -155,17 +285,27 @@ def apply_edits(
     ranges: List[FlaggedRange],
     mode: str = "mute",
     output_format: Optional[str] = None,
+    bitrate: Optional[str] = None,
+    sample_rate: Optional[int] = None,
+    channels: Optional[int] = None,
 ) -> Path:
     """
     Apply audio edits and write the cleaned file.
 
+    The output is re-encoded to match the source file's bitrate, sample rate,
+    and channel count by default.  Use the override parameters to force
+    specific values when auto-detection is not sufficient.
+
     Parameters
     ----------
-    input_path : path to source audiobook
-    output_path : path for the cleaned output
-    ranges : merged FlaggedRange list
-    mode : "mute" or "remove"
-    output_format : override output codec (e.g. "mp3", "m4b"); None = copy codec
+    input_path    : path to source audiobook
+    output_path   : path for the cleaned output
+    ranges        : merged FlaggedRange list
+    mode          : "mute" or "remove"
+    output_format : force a container/codec (e.g. "mp3", "m4b"); None = same as input
+    bitrate       : e.g. "64k" — overrides auto-detected bitrate
+    sample_rate   : e.g. 44100 — overrides auto-detected sample rate
+    channels      : e.g. 1 (mono) — overrides auto-detected channel count
 
     Returns
     -------
@@ -180,16 +320,14 @@ def apply_edits(
         shutil.copy2(input_path, output_path)
         return output_path
 
-    # Build codec / format arguments
-    extra: List[str] = []
+    # Determine output container suffix
     suffix = output_path.suffix.lower()
     if output_format:
         suffix = f".{output_format.lstrip('.')}"
-    if suffix in (".mp3",):
-        extra += ["-c:a", "libmp3lame", "-q:a", "2"]
-    elif suffix in (".m4b", ".m4a", ".aac"):
-        extra += ["-c:a", "aac", "-b:a", "128k"]
-    # else: let ffmpeg choose defaults
+
+    # Probe source file and build codec arguments that match it
+    probe = probe_audio(input_path)
+    extra = _build_codec_args(probe, suffix, bitrate, sample_rate, channels)
 
     if mode == "mute":
         _apply_mute(input_path, output_path, ranges, extra)
