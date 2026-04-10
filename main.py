@@ -10,6 +10,12 @@ Usage examples:
     python main.py analyze -t transcript.json               # classify existing transcript
     python main.py clean -i book.mp3 --edl edl.json         # re-apply saved edits
     python main.py dry-run                                  # test with mock data
+
+Batch usage:
+    python main.py batch chapter01.mp3 chapter02.mp3 --output-dir cleaned/
+    python main.py batch --input-dir ./chapters --pattern "*.mp3" --output-dir cleaned/
+    python main.py batch --input-dir ./chapters --join --output-dir cleaned/
+    python main.py batch --input-dir ./chapters --report-only
 """
 
 import argparse
@@ -79,6 +85,23 @@ def build_parser() -> argparse.ArgumentParser:
     p_dr.add_argument("-s", "--sensitivity", choices=["strict", "moderate", "minimal"])
     p_dr.add_argument("-v", "--verbose", action="store_true")
 
+    # ---- batch ----
+    p_ba = sub.add_parser("batch", help="Process multiple audiobook files in batch")
+    p_ba.add_argument("files", nargs="*", help="Audio files to process")
+    p_ba.add_argument("-i", "--input-dir", help="Directory to glob files from")
+    p_ba.add_argument("--pattern", default="*.mp3,*.m4b",
+                       help="Comma-separated glob patterns (used with --input-dir)")
+    p_ba.add_argument("-o", "--output-dir", help="Output directory")
+    p_ba.add_argument("--join", action="store_true",
+                       help="Combine transcripts across all files before classifying")
+    p_ba.add_argument("--report-only", action="store_true",
+                       help="Generate report without writing audio output")
+    p_ba.add_argument("-s", "--sensitivity", choices=["strict", "moderate", "minimal"],
+                       default="moderate")
+    p_ba.add_argument("-m", "--mode", choices=["mute", "beep"], default="mute")
+    p_ba.add_argument("-c", "--config", default="config.yaml", help="Path to config YAML")
+    p_ba.add_argument("-v", "--verbose", action="store_true")
+
     return parser
 
 
@@ -119,6 +142,34 @@ def main() -> None:
             pipeline.run_clean(args.input, args.edl, args.output)
         elif args.command == "dry-run":
             pipeline.run_dry_run()
+        elif args.command == "batch":
+            # Collect files from positional args and --input-dir
+            files = list(args.files) if args.files else []
+            if args.input_dir:
+                input_dir = Path(args.input_dir)
+                for pat in args.pattern.split(","):
+                    pat = pat.strip()
+                    files.extend(str(p) for p in sorted(input_dir.glob(pat)))
+            # Deduplicate while preserving order
+            seen = set()
+            deduped = []
+            for f in files:
+                key = str(Path(f).resolve())
+                if key not in seen:
+                    seen.add(key)
+                    deduped.append(f)
+            files = deduped
+
+            if not files:
+                logging.getLogger(__name__).error("No input files found.")
+                sys.exit(1)
+
+            pipeline.run_batch(
+                files,
+                output_dir=args.output_dir,
+                join=args.join,
+                report_only=args.report_only,
+            )
     except KeyboardInterrupt:
         logging.getLogger(__name__).warning("Interrupted by user.")
         sys.exit(130)

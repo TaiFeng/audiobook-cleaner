@@ -19,9 +19,35 @@ from .chunker import create_chunks, Chunk
 from .classifier import classify_chunks, mock_classify_chunk, ChunkResult
 from .merger import merge_ranges, build_ranges_from_results
 from .reporter import generate_report
-from .editor import apply_edits, write_edl
+from .editor import apply_edits, write_edl, get_audio_duration
 
 logger = logging.getLogger(__name__)
+
+
+def _clip_ranges_to_file(merged, file_start: float, file_end: float):
+    """Intersect absolute-time ranges with [file_start, file_end] and translate to file-local timestamps."""
+    local_ranges = []
+    for r in merged:
+        if r.end <= file_start or r.start >= file_end:
+            continue
+        local_ranges.append(FlaggedRange(
+            start=max(r.start, file_start) - file_start,
+            end=min(r.end, file_end) - file_start,
+            reason=r.reason,
+            source=r.source,
+            severity=r.severity,
+            confidence=r.confidence,
+        ))
+    return local_ranges
+
+
+def _batch_summary(files, failures):
+    """Log a summary of batch processing results."""
+    completed = len(files) - len(failures)
+    logger.info(f"Batch complete: {completed}/{len(files)} files processed successfully.")
+    if failures:
+        for f, err in failures:
+            logger.warning(f"  FAILED: {f} — {err}")
 
 
 class Pipeline:
@@ -231,6 +257,158 @@ class Pipeline:
         self._print_summary(summary)
         logger.info("Dry-run output written to: dry_run_output/")
         logger.info("DRY RUN COMPLETE — all pipeline stages validated.")
+
+    # -----------------------------------------------------------------
+    # Batch processing
+    # -----------------------------------------------------------------
+
+    def _batch_output_path(self, input_path: Path, output_dir):
+        """Return the output file path for a cleaned file."""
+        output_dir = Path(output_dir) if output_dir else input_path.parent
+        return output_dir / f"{input_path.stem}_clean{input_path.suffix}"
+
+    def _batch_work_dir(self, input_path: Path, output_dir):
+        """Return the work directory for a file's intermediates."""
+        output_dir = Path(output_dir) if output_dir else input_path.parent
+        return output_dir / f"{input_path.stem}_cleaned"
+
+    def _run_batch_independent(self, files, output_dir, report_only: bool):
+        """Process each file independently through the full pipeline."""
+        failures = []
+        for f in files:
+            f = Path(f)
+            out_path = self._batch_output_path(f, output_dir)
+            work_dir = self._batch_work_dir(f, output_dir)
+            work_dir.mkdir(parents=True, exist_ok=True)
+            try:
+                self.run_full(
+                    input_path=str(f),
+                    output_path=str(out_path),
+                    report_only=report_only,
+                )
+            except Exception as e:
+                failures.append((str(f), str(e)))
+        _batch_summary(files, failures)
+
+    def _run_batch_join(self, files, output_dir, report_only: bool):
+        """Transcribe all files, combine transcripts with time offsets, classify once, then apply edits per file."""
+        if output_dir:
+            Path(output_dir).mkdir(parents=True, exist_ok=True)
+
+        # Step 1: Transcribe each file, accumulate combined word list with offsets
+        all_words = []
+        file_spans = []  # (path, start_offset, end_offset)
+        offset = 0.0
+        failures = []
+
+        for f in files:
+            f = Path(f)
+            work_dir = self._batch_work_dir(f, output_dir)
+            work_dir.mkdir(parents=True, exist_ok=True)
+
+            duration = get_audio_duration(str(f))
+            file_start = offset
+            file_end = offset + duration
+
+            try:
+                transcript_path = work_dir / "transcript.json"
+                words = transcribe(f, self.config.transcription, cache_path=transcript_path)
+                # Shift word timestamps by offset
+                shifted = []
+                for w in words:
+                    shifted.append(WordSegment(
+                        word=w.word,
+                        start=w.start + offset,
+                        end=w.end + offset,
+                        score=w.score,
+                    ))
+                all_words.extend(shifted)
+            except Exception as e:
+                logger.warning(f"Transcription failed for {f}: {e}")
+                failures.append((str(f), str(e)))
+
+            file_spans.append((f, file_start, file_end))
+            offset = file_end
+
+        if not all_words:
+            logger.error("No words transcribed across any file. Aborting join mode.")
+            return
+
+        # Step 2: Run profanity detection + chunking + classification on combined transcript
+        profanity_hits = self._detect_profanity(all_words)
+        chunks = create_chunks(all_words, self.config.chunking)
+        results = classify_chunks(
+            chunks, self.config.classification, self.config.sensitivity,
+        )
+        merged = self._merge_all(profanity_hits, results)
+
+        # Step 3: Write combined report
+        join_report_dir = Path(output_dir) / "_batch_join_report" if output_dir else Path(files[0]).parent / "_batch_join_report"
+        join_report_dir.mkdir(parents=True, exist_ok=True)
+        generate_report(
+            results, merged, join_report_dir, self.config.output,
+            profanity_hits=profanity_hits,
+        )
+
+        # Write combined EDL
+        combined_edl_path = join_report_dir / "combined_edl.json"
+        write_edl(merged, str(combined_edl_path), self.config.output.mode)
+
+        if report_only:
+            logger.info("report-only mode: skipping audio edits.")
+            _batch_summary(files, failures)
+            return
+
+        # Step 4: Per-file: clip merged ranges to file span and apply edits
+        for (f, file_start, file_end) in file_spans:
+            local_ranges = _clip_ranges_to_file(merged, file_start, file_end)
+            out_path = self._batch_output_path(f, output_dir)
+            work_dir = self._batch_work_dir(f, output_dir)
+
+            edl_path = work_dir / "edl.json"
+            write_edl(local_ranges, str(edl_path), self.config.output.mode)
+
+            if local_ranges:
+                try:
+                    apply_edits(
+                        str(f), str(out_path), local_ranges,
+                        mode=self.config.output.mode,
+                        output_format=self.config.output.format,
+                        bitrate=self.config.output.bitrate,
+                        sample_rate=self.config.output.sample_rate,
+                        channels=self.config.output.channels,
+                    )
+                except Exception as e:
+                    logger.warning(f"Edit failed for {f}: {e}")
+                    failures.append((str(f), str(e)))
+            else:
+                import shutil
+                shutil.copy2(str(f), str(out_path))
+                logger.info(f"No cuts for {f.name} — copied to output unchanged.")
+
+        _batch_summary(files, failures)
+
+    def run_batch(self, input_files, output_dir=None, join: bool = False, report_only: bool = False):
+        """
+        Process multiple audiobook files in batch.
+
+        Args:
+            input_files: List of file paths (str or Path) to process.
+            output_dir:  Directory for cleaned files and work dirs. If None, output lives next to each source.
+            join:        If True, combine transcripts across all files before classifying (catches cross-boundary content).
+            report_only: If True, run the full pipeline but skip writing audio output.
+        """
+        files = [Path(f) for f in input_files]
+        if not files:
+            logger.warning("run_batch called with no files.")
+            return
+
+        logger.info(f"Batch processing {len(files)} file(s). join={join}, report_only={report_only}")
+
+        if join:
+            self._run_batch_join(files, output_dir, report_only)
+        else:
+            self._run_batch_independent(files, output_dir, report_only)
 
     # -----------------------------------------------------------------
     # Internal helpers
