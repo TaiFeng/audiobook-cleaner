@@ -13,22 +13,51 @@
 
 # --- Strong profanity ---
 fuck
-fucking
+fucked
 fucker
+fuckers
+fucking
+fucks
+motherfuck
 motherfucker
+motherfuckers
+motherfucking
 shit
+shits
+shitty
 shitting
+shitted
 bullshit
+bullshits
+bullshitting
 horseshit
 bitch
+bitched
+bitches
+bitching
+bitchy
 asshole
+assholes
 bastard
+bastards
 cunt
+cunts
+cunting
 dick
+dicks
+dicking
 piss
+pisses
 pissed
+pissing
+pissy
 cocksucker
+cocksuckers
+cocksucking
 goddamn
+goddamns
+goddamned
+goddamning
 goddammit
 
 # --- Slurs (always mute) ---
@@ -38,8 +67,14 @@ goddammit
 
 # --- Mild profanity (uncomment for strict filtering) ---
 # damn
+# damned
+# damning
 # hell
 # crap
+# crappy
 # ass
+# asses
 # suck
 # sucks
+# sucked
+# sucking
