@@ -23,7 +23,9 @@ chunking:
 profanity:
   enabled: true
   banned_words_file: "banned_words.txt"
-  padding_seconds: 0.3       # Seconds of silence added each side of a banned word
+  padding_seconds: 0.0       # Seconds added each side of a banned word.
+                              # 0.0 = word-precise (recommended — WhisperX timestamps are reliable).
+                              # Set to 0.1–0.3 only if cuts feel abrupt on your audiobook.
 
 # --- AI Classification --------------------------------------
 classification:
@@ -65,6 +67,8 @@ thresholds:
 # --- Output --------------------------------------------------
 output:
   mode: "mute"               # "mute" (silence ranges) or "remove" (cut ranges)
-  padding_seconds: 0.5       # Extra seconds added before/after each flagged range
+  padding_seconds: 0.0       # Extra seconds added before/after each AI-classified range.
+                              # 0.0 = clip exactly at chunk boundaries (recommended).
+                              # Set to 0.25–1.0 if you want a safety buffer around scenes.
   format: null               # null = keep input format; or force "mp3" / "m4b"
   report_format: "both"      # "csv", "json", or "both"

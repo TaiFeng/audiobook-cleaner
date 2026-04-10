@@ -72,10 +72,14 @@ def _normalize(word: str) -> str:
 def detect_profanity(
     words: List[WordSegment],
     banned: Set[str],
-    padding_seconds: float = 0.3,
+    padding_seconds: float = 0.0,
 ) -> List[FlaggedRange]:
     """
-    Scan *words* for banned terms and return padded FlaggedRanges.
+    Scan *words* for banned terms and return FlaggedRanges.
+
+    Each range spans exactly the word's WhisperX-aligned start/end timestamps.
+    Set *padding_seconds* > 0 only if you want a small buffer beyond the
+    word boundary (default is 0.0 — word-precise cuts).
 
     Supports single-word and two-word phrase matching.
     """

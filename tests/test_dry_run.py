@@ -103,7 +103,7 @@ def test_chunker_produces_overlapping_chunks():
 def test_profanity_detection():
     words = _make_words(PROFANITY_TEXT)
     banned = {"fuck", "shit", "asshole", "damn", "hell"}
-    hits = detect_profanity(words, banned, padding_seconds=0.2)
+    hits = detect_profanity(words, banned, padding_seconds=0.0)
 
     found_words = " ".join(h.reason for h in hits).lower()
     assert "fuck" in found_words
@@ -190,7 +190,7 @@ def test_full_dry_run_pipeline(tmp_path):
 
     # Profanity
     banned = {"fuck", "shit", "asshole", "damn"}
-    profanity_hits = detect_profanity(all_words, banned, padding_seconds=0.3)
+    profanity_hits = detect_profanity(all_words, banned, padding_seconds=0.0)
 
     # Chunk + classify (mock)
     chunks = create_chunks(all_words, config.chunking)

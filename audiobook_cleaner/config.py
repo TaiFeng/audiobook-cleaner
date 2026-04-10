@@ -51,7 +51,7 @@ class ChunkingConfig:
 class ProfanityConfig:
     enabled: bool = True
     banned_words_file: str = "banned_words.txt"
-    padding_seconds: float = 0.3  # silence padding each side of a hit
+    padding_seconds: float = 0.0  # silence padding each side of a hit (0.0 = word-precise)
 
 
 @dataclass
@@ -75,7 +75,7 @@ class ThresholdConfig:
 @dataclass
 class OutputConfig:
     mode: str = "mute"            # "mute" or "remove"
-    padding_seconds: float = 0.5  # padding added around each flagged range
+    padding_seconds: float = 0.0  # padding added around each flagged range (0.0 = word-precise)
     format: Optional[str] = None  # None = same as input; or "mp3" / "m4b"
     report_format: str = "both"   # "csv", "json", or "both"
 

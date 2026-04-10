@@ -72,7 +72,7 @@ def merge_ranges(
 def build_ranges_from_results(
     results: List[ChunkResult],
     threshold: ThresholdConfig,
-    padding_seconds: float = 0.5,
+    padding_seconds: float = 0.0,
 ) -> List[FlaggedRange]:
     """
     Convert ChunkResults into FlaggedRanges, applying threshold filters.
