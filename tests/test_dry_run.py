@@ -235,6 +235,263 @@ def test_full_dry_run_pipeline(tmp_path):
     print("  PASS ✓")
 
 
+# ===========================================================================
+# Word-level precision tests — zero-padding pipeline
+# ===========================================================================
+# These tests use hand-crafted WordSegment lists with explicit, non-round
+# timestamps so that any arithmetic offset introduced by padding would
+# produce values NOT present in the word-timestamp sets, causing failures.
+# All four tests assert exact float equality (==) against source timestamps.
+# ===========================================================================
+
+def test_word_precise_single_profanity_hit():
+    """
+    A single banned word in a transcript of clean words.
+
+    With padding_seconds=0.0 the FlaggedRange must start and end at exactly
+    the banned word's WhisperX-aligned timestamps.  Adjacent clean words
+    must fall entirely outside the range — no bleed in either direction.
+    """
+    # Craft non-round timestamps so arithmetic drift would be immediately
+    # visible (e.g. 0.800 - 0.001 = 0.799, which is NOT in the word set).
+    words = [
+        WordSegment("The",     0.000, 0.200),
+        WordSegment("weather", 0.240, 0.580),
+        WordSegment("was",     0.620, 0.760),   # ← preceding clean word
+        WordSegment("fucking", 0.800, 0.980),   # ← BANNED
+        WordSegment("nice",    1.020, 1.200),   # ← following clean word
+        WordSegment("today",   1.240, 1.500),
+    ]
+    banned_word   = words[3]
+    preceding     = words[2]
+    following     = words[4]
+
+    hits = detect_profanity(words, {"fucking"}, padding_seconds=0.0)
+
+    assert len(hits) == 1, f"Expected 1 hit, got {len(hits)}"
+    hit = hits[0]
+
+    # --- exact timestamp alignment ---
+    assert hit.start == banned_word.start, (
+        f"hit.start {hit.start} != word.start {banned_word.start} — "
+        f"non-zero padding applied to start boundary"
+    )
+    assert hit.end == banned_word.end, (
+        f"hit.end {hit.end} != word.end {banned_word.end} — "
+        f"non-zero padding applied to end boundary"
+    )
+
+    # --- no backward bleed ---
+    assert hit.start > preceding.end, (
+        f"Cut starts at {hit.start} but preceding word ends at {preceding.end} — "
+        f"backward bleed detected (gap should be {hit.start - preceding.end:.3f}s)"
+    )
+
+    # --- no forward bleed ---
+    assert hit.end < following.start, (
+        f"Cut ends at {hit.end} but following word starts at {following.start} — "
+        f"forward bleed detected (gap should be {following.start - hit.end:.3f}s)"
+    )
+
+    # --- merge with padding=0.0 must not alter the range ---
+    merged = merge_ranges(hits, padding_seconds=0.0)
+    assert len(merged) == 1
+    assert merged[0].start == hit.start, "merge_ranges expanded start with zero padding"
+    assert merged[0].end   == hit.end,   "merge_ranges expanded end with zero padding"
+
+
+def test_two_word_phrase_merge_without_bleed():
+    """
+    A two-word banned phrase followed by the second word also appearing in
+    the single-word banned set.  After merging, the consolidated range must
+    span exactly phrase[0].start → phrase[-1].end with no bleed beyond.
+    """
+    words = [
+        WordSegment("She",    0.000, 0.150),   # clean
+        WordSegment("said",   0.190, 0.380),   # ← preceding clean word
+        WordSegment("holy",   0.420, 0.590),   # ← start of banned phrase
+        WordSegment("shit",   0.630, 0.790),   # ← end of banned phrase; also single-banned
+        WordSegment("really", 0.830, 1.100),   # ← following clean word
+        WordSegment("loudly", 1.140, 1.380),   # clean
+    ]
+    phrase_first  = words[2]   # "holy"
+    phrase_last   = words[3]   # "shit"
+    preceding     = words[1]   # "said"
+    following     = words[4]   # "really"
+
+    # Phrase match AND single-word match will both fire; merge must handle it.
+    hits = detect_profanity(words, {"holy shit", "shit"}, padding_seconds=0.0)
+    assert len(hits) >= 1, "Expected at least one profanity hit"
+
+    merged = merge_ranges(hits, padding_seconds=0.0)
+    assert len(merged) == 1, (
+        f"Expected 1 merged range for overlapping phrase/single hits, got {len(merged)}: {merged}"
+    )
+    r = merged[0]
+
+    # --- exact phrase boundary alignment ---
+    assert r.start == phrase_first.start, (
+        f"Merged start {r.start} != phrase first word start {phrase_first.start}"
+    )
+    assert r.end == phrase_last.end, (
+        f"Merged end {r.end} != phrase last word end {phrase_last.end}"
+    )
+
+    # --- no bleed into adjacent clean words ---
+    assert r.start > preceding.end, (
+        f"Cut bleeds into preceding word 'said': "
+        f"cut.start={r.start}, said.end={preceding.end}"
+    )
+    assert r.end < following.start, (
+        f"Cut bleeds into following word 'really': "
+        f"cut.end={r.end}, really.start={following.start}"
+    )
+
+
+def test_chunk_start_end_times_are_word_timestamps():
+    """
+    Chunker must set chunk.start_time and chunk.end_time to exactly the
+    first and last word's .start / .end fields — no rounding or offsets.
+
+    Uses irrational-looking timestamps to expose any float arithmetic drift.
+    """
+    # Timestamps chosen to be non-round and mutually distinct
+    words = [
+        WordSegment("Once",  1.123, 1.334),
+        WordSegment("upon",  1.389, 1.521),
+        WordSegment("a",     1.576, 1.612),
+        WordSegment("time",  1.667, 1.903),
+        WordSegment("there", 1.958, 2.201),
+        WordSegment("was",   2.256, 2.399),
+        WordSegment("a",     2.454, 2.490),
+        WordSegment("great", 2.545, 2.789),
+        WordSegment("king",  2.844, 3.012),
+    ]
+
+    config = AppConfig()
+    config.chunking.chunk_size   = 4
+    config.chunking.overlap      = 0
+    config.chunking.min_chunk_size = 1
+    chunks = create_chunks(words, config.chunking)
+
+    assert len(chunks) >= 2, "Need multiple chunks to test boundaries"
+
+    for chunk in chunks:
+        first_word = chunk.words[0]
+        last_word  = chunk.words[-1]
+
+        assert chunk.start_time == first_word.start, (
+            f"Chunk {chunk.index} start_time={chunk.start_time} != "
+            f"first word '{first_word.word}'.start={first_word.start} — "
+            f"chunker introduced a timestamp offset"
+        )
+        assert chunk.end_time == last_word.end, (
+            f"Chunk {chunk.index} end_time={chunk.end_time} != "
+            f"last word '{last_word.word}'.end={last_word.end} — "
+            f"chunker introduced a timestamp offset"
+        )
+
+
+def test_zero_padding_pipeline_boundaries_are_word_aligned():
+    """
+    Full pipeline precision test (profanity + mock classifier + merge).
+
+    The violent section is isolated in its own chunk so the mock classifier
+    can flag it cleanly.  After the pipeline runs with padding_seconds=0.0:
+
+    1. Every merged range .start is in {word.start for word in all_words}.
+    2. Every merged range .end   is in {word.end   for word in all_words}.
+    3. Clean words in a separate time region do not overlap any cut range.
+
+    If any padding > 0 were applied, condition 1 or 2 would fail because the
+    offset value would not appear in the word-timestamp sets.
+    """
+    # --- Violent chunk (chunk 0): 8 words containing mock-classifier triggers ---
+    violent = [
+        WordSegment("blood",      0.000, 0.210),
+        WordSegment("spurted",    0.250, 0.530),
+        WordSegment("from",       0.570, 0.710),
+        WordSegment("the",        0.750, 0.830),
+        WordSegment("wound",      0.870, 1.050),
+        WordSegment("and",        1.090, 1.180),
+        WordSegment("gore",       1.220, 1.410),
+        WordSegment("splattered", 1.450, 1.780),
+    ]
+
+    # --- Clean chunk (chunk 1): 8 words, well separated in time ---
+    clean = [
+        WordSegment("Later",     3.000, 3.210),
+        WordSegment("that",      3.250, 3.390),
+        WordSegment("evening",   3.430, 3.710),
+        WordSegment("the",       3.750, 3.830),
+        WordSegment("heroes",    3.870, 4.110),
+        WordSegment("gathered",  4.150, 4.440),
+        WordSegment("to",        4.480, 4.540),
+        WordSegment("celebrate", 4.580, 4.930),
+    ]
+
+    all_words = violent + clean
+
+    # Build lookup sets — any padding arithmetic would produce values absent here
+    all_starts = {w.start for w in all_words}
+    all_ends   = {w.end   for w in all_words}
+
+    # --- Run pipeline (all padding=0.0) ---
+    config = AppConfig()
+    config.chunking.chunk_size    = 8   # each section is exactly one chunk
+    config.chunking.overlap       = 0
+    config.chunking.min_chunk_size = 1
+    config.sensitivity = "moderate"
+
+    profanity_hits = detect_profanity(all_words, set(), padding_seconds=0.0)
+
+    chunks  = create_chunks(all_words, config.chunking)
+    results = [mock_classify_chunk(c, config.sensitivity) for c in chunks]
+
+    classifier_ranges = build_ranges_from_results(
+        results, config.active_threshold, padding_seconds=0.0,
+    )
+    merged = merge_ranges(profanity_hits + classifier_ranges, padding_seconds=0.0)
+
+    assert merged, (
+        "Pipeline produced no flagged ranges — mock classifier did not flag the "
+        "violent section (check keywords: 'blood spurted', 'gore')"
+    )
+
+    # --- Assertion 1 & 2: every boundary is an exact word timestamp ---
+    for r in merged:
+        assert r.start in all_starts, (
+            f"Range start {r.start} is not in the word-start set.  "
+            f"Non-zero padding must have been applied (nearest word starts: "
+            f"{sorted(s for s in all_starts if abs(s - r.start) < 0.5)})"
+        )
+        assert r.end in all_ends, (
+            f"Range end {r.end} is not in the word-end set.  "
+            f"Non-zero padding must have been applied (nearest word ends: "
+            f"{sorted(e for e in all_ends if abs(e - r.end) < 0.5)})"
+        )
+
+    # --- Assertion 3: clean words do not overlap any cut ---
+    # The violent section ends at 1.780; clean words start at 3.000 — there
+    # is a 1.22-second gap that zero-padding must never bridge.
+    for word in clean:
+        for r in merged:
+            overlaps = word.start < r.end and word.end > r.start
+            assert not overlaps, (
+                f"Clean word '{word.word}' [{word.start}–{word.end}] overlaps "
+                f"cut range [{r.start}–{r.end}].  "
+                f"The cut is bleeding into content that must be preserved."
+            )
+
+    # --- Diagnostic print (visible with pytest -s) ---
+    print(f"\n  Violent section:  [{violent[0].start}–{violent[-1].end}]")
+    print(f"  Clean section:    [{clean[0].start}–{clean[-1].end}]")
+    for i, r in enumerate(merged):
+        print(f"  Cut {i}: [{r.start}–{r.end}]  source={r.source}")
+    print(f"  All boundaries word-aligned: ✓")
+    print(f"  No bleed into clean section: ✓")
+
+
 # ---------------------------------------------------------------------------
 # Direct execution
 # ---------------------------------------------------------------------------
@@ -257,4 +514,13 @@ if __name__ == "__main__":
     test_severity_comparison()
     print("  ✓ severity comparison")
     test_full_dry_run_pipeline(tmp)
+    print("  ✓ full dry-run pipeline")
+    test_word_precise_single_profanity_hit()
+    print("  ✓ word-precise single profanity hit")
+    test_two_word_phrase_merge_without_bleed()
+    print("  ✓ two-word phrase merge without bleed")
+    test_chunk_start_end_times_are_word_timestamps()
+    print("  ✓ chunk boundaries are word timestamps")
+    test_zero_padding_pipeline_boundaries_are_word_aligned()
+    print("  ✓ zero-padding pipeline: all boundaries word-aligned, no bleed")
     print("\nAll tests passed.")
