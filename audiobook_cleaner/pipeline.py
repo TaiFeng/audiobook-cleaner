@@ -16,7 +16,7 @@ from .config import AppConfig
 from .transcriber import transcribe, save_transcript, load_transcript, WordSegment
 from .profanity import load_banned_words, detect_profanity, FlaggedRange
 from .chunker import create_chunks, Chunk
-from .classifier import classify_chunks, mock_classify_chunk, ChunkResult
+from .classifier import classify_chunks, mock_classify_chunk, ChunkResult, _is_flagged, _bisect_chunk
 from .merger import merge_ranges, build_ranges_from_results
 from .reporter import generate_report
 from .editor import apply_edits, write_edl, load_edl, get_audio_duration
@@ -227,11 +227,27 @@ class Pipeline:
 
         # Mock classification (no API)
         logger.info("Running mock classification on %d chunks …", len(chunks))
-        results = [
+        initial_results = [
             mock_classify_chunk(c, self.config.sensitivity) for c in chunks
         ]
+
+        # Bisection drill-down on flagged mock results
+        results = []
+        cls_config = self.config.classification
+        for r, chunk in zip(initial_results, chunks):
+            if (
+                cls_config.bisect
+                and _is_flagged(r)
+                and (chunk.end_time - chunk.start_time) > cls_config.bisect_min_seconds
+            ):
+                classify_fn = lambda c: mock_classify_chunk(c, self.config.sensitivity)
+                bisected = _bisect_chunk(chunk, classify_fn, cls_config.bisect_min_seconds, cls_config.bisect_max_depth)
+                results.extend(bisected)
+            else:
+                results.append(r)
+
         flagged = [r for r in results if r.is_flagged]
-        logger.info("Mock classification: %d/%d chunks flagged.", len(flagged), len(results))
+        logger.info("Mock classification: %d/%d results flagged.", len(flagged), len(results))
 
         # Merge
         merged = self._merge_all(profanity_hits, results)

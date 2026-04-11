@@ -45,6 +45,9 @@ class ChunkingConfig:
     overlap: int = 200            # overlap words between adjacent chunks
     min_chunk_size: int = 300
     max_chunk_size: int = 1500
+    chunk_mode: str = "sentence"        # "sentence" (recommended) or "fixed"
+    max_sentence_words: int = 120       # max words per sentence-chunk before forcing a split
+    pause_gap_seconds: float = 1.5      # treat a gap >= this as a sentence boundary
 
 
 @dataclass
@@ -64,6 +67,9 @@ class ClassificationConfig:
     timeout: int = 60
     retry_attempts: int = 3
     retry_delay: float = 2.0
+    bisect: bool = True                 # drill down into flagged chunks to find precise boundaries
+    bisect_min_seconds: float = 5.0     # stop bisecting when sub-chunk is shorter than this
+    bisect_max_depth: int = 6           # max recursion depth (safety cap)
 
 
 @dataclass

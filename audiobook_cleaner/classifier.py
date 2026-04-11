@@ -21,6 +21,7 @@ import requests
 
 from .config import ClassificationConfig
 from .chunker import Chunk
+from .transcriber import WordSegment
 
 logger = logging.getLogger(__name__)
 
@@ -273,6 +274,8 @@ def classify_chunks(
     Classify all *chunks* concurrently and return sorted ChunkResults.
 
     Uses ThreadPoolExecutor with *config.max_concurrent* workers.
+    When bisection is enabled, flagged chunks are recursively bisected to
+    isolate the objectionable sub-chunk.
     """
     if not chunks:
         return []
@@ -282,7 +285,7 @@ def classify_chunks(
         len(chunks), config.model, config.max_concurrent,
     )
 
-    results: List[ChunkResult] = []
+    initial_results: List[ChunkResult] = []
 
     with ThreadPoolExecutor(max_workers=config.max_concurrent) as pool:
         futures = {
@@ -291,16 +294,35 @@ def classify_chunks(
         }
         for future in as_completed(futures):
             result = future.result()
-            results.append(result)
+            initial_results.append(result)
             status = "FLAGGED" if result.is_flagged else "clean"
             logger.debug(
                 "  chunk %d  [%s]  severity=%s  confidence=%.2f",
                 result.chunk_index, status, result.severity, result.confidence,
             )
 
-    results.sort(key=lambda r: r.chunk_index)
+    initial_results.sort(key=lambda r: r.chunk_index)
+
+    # Bisection drill-down on flagged chunks
+    results: List[ChunkResult] = []
+    chunks_by_index = {c.index: c for c in chunks}
+    for r in initial_results:
+        chunk = chunks_by_index.get(r.chunk_index)
+        if (
+            config.bisect
+            and _is_flagged(r)
+            and chunk is not None
+            and (chunk.end_time - chunk.start_time) > config.bisect_min_seconds
+        ):
+            classify_fn = lambda c, _cfg=config, _sens=sensitivity: _call_api(c, _cfg, _sens)
+            bisected = _bisect_chunk(chunk, classify_fn, config.bisect_min_seconds, config.bisect_max_depth)
+            results.extend(bisected)
+        else:
+            results.append(r)
+
+    results.sort(key=lambda r: r.start_time)
     flagged_count = sum(1 for r in results if r.is_flagged)
-    logger.info("Classification complete: %d/%d chunks flagged.", flagged_count, len(results))
+    logger.info("Classification complete: %d/%d results flagged.", flagged_count, len(results))
     return results
 
 
@@ -375,3 +397,72 @@ def mock_classify_chunk(chunk: Chunk, sensitivity: str = "moderate") -> ChunkRes
         segment_start=chunk.start_time if is_flagged else None,
         segment_end=chunk.end_time if is_flagged else None,
     )
+
+
+# ---------------------------------------------------------------------------
+# Bisection helpers
+# ---------------------------------------------------------------------------
+
+def _is_flagged(result: ChunkResult, min_confidence: float = 0.3) -> bool:
+    """Check if a ChunkResult is flagged (severity != 'none' and confidence meets threshold)."""
+    return result.severity != "none" and result.confidence >= min_confidence
+
+
+def _bisect_chunk(
+    chunk: Chunk,
+    classify_fn,
+    min_seconds: float,
+    max_depth: int,
+    depth: int = 0,
+) -> List[ChunkResult]:
+    """
+    Recursively bisect a flagged chunk to find the minimal sub-chunk
+    containing the objectionable content.
+
+    Returns a list of ChunkResult for the leaf sub-chunks that are flagged.
+    If neither half is flagged, returns the original chunk result (full span)
+    as a fallback to avoid losing the detection.
+    """
+    duration = chunk.end_time - chunk.start_time
+    if duration <= min_seconds or depth >= max_depth or len(chunk.words) < 2:
+        return [classify_fn(chunk)]
+
+    mid = len(chunk.words) // 2
+    left_words = chunk.words[:mid]
+    right_words = chunk.words[mid:]
+
+    left_chunk = Chunk(
+        index=chunk.index,
+        text=" ".join(w.word for w in left_words),
+        word_count=len(left_words),
+        start_time=left_words[0].start,
+        end_time=left_words[-1].end,
+        words=left_words,
+    )
+    right_chunk = Chunk(
+        index=chunk.index,
+        text=" ".join(w.word for w in right_words),
+        word_count=len(right_words),
+        start_time=right_words[0].start,
+        end_time=right_words[-1].end,
+        words=right_words,
+    )
+
+    left_result = classify_fn(left_chunk)
+    right_result = classify_fn(right_chunk)
+
+    left_flagged = _is_flagged(left_result)
+    right_flagged = _is_flagged(right_result)
+
+    if not left_flagged and not right_flagged:
+        # Neither half flagged — return the original chunk classified at full span
+        # to avoid losing the detection
+        return [classify_fn(chunk)]
+
+    results = []
+    if left_flagged:
+        results.extend(_bisect_chunk(left_chunk, classify_fn, min_seconds, max_depth, depth + 1))
+    if right_flagged:
+        results.extend(_bisect_chunk(right_chunk, classify_fn, min_seconds, max_depth, depth + 1))
+
+    return results

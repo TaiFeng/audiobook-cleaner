@@ -87,6 +87,7 @@ CLEAN_ENDING = (
 def test_chunker_produces_overlapping_chunks():
     words = _make_words(CLEAN_TEXT + " " + VIOLENT_TEXT + " " + CLEAN_ENDING)
     config = AppConfig()
+    config.chunking.chunk_mode = "fixed"
     config.chunking.chunk_size = 40
     config.chunking.overlap = 10
     config.chunking.min_chunk_size = 10  # low minimum so small remnants stay separate
@@ -115,6 +116,7 @@ def test_profanity_detection():
 def test_mock_classifier_flags_violence():
     words = _make_words(VIOLENT_TEXT, start=120.0)
     config = AppConfig()
+    config.chunking.chunk_mode = "fixed"
     config.chunking.chunk_size = 200  # single chunk
     chunks = create_chunks(words, config.chunking)
     assert len(chunks) == 1
@@ -128,6 +130,7 @@ def test_mock_classifier_flags_violence():
 def test_mock_classifier_flags_drugs():
     words = _make_words(DRUG_TEXT, start=180.0)
     config = AppConfig()
+    config.chunking.chunk_mode = "fixed"
     config.chunking.chunk_size = 200
     chunks = create_chunks(words, config.chunking)
 
@@ -139,6 +142,7 @@ def test_mock_classifier_flags_drugs():
 def test_mock_classifier_passes_clean():
     words = _make_words(CLEAN_TEXT, start=0.0)
     config = AppConfig()
+    config.chunking.chunk_mode = "fixed"
     config.chunking.chunk_size = 200
     chunks = create_chunks(words, config.chunking)
 
@@ -175,6 +179,7 @@ def test_severity_comparison():
 def test_full_dry_run_pipeline(tmp_path):
     """End-to-end dry run producing reports and EDL."""
     config = AppConfig()
+    config.chunking.chunk_mode = "fixed"
     config.chunking.chunk_size = 50
     config.chunking.overlap = 10
     config.sensitivity = "moderate"
@@ -369,6 +374,7 @@ def test_chunk_start_end_times_are_word_timestamps():
     ]
 
     config = AppConfig()
+    config.chunking.chunk_mode = "fixed"
     config.chunking.chunk_size   = 4
     config.chunking.overlap      = 0
     config.chunking.min_chunk_size = 1
@@ -438,6 +444,7 @@ def test_zero_padding_pipeline_boundaries_are_word_aligned():
 
     # --- Run pipeline (all padding=0.0) ---
     config = AppConfig()
+    config.chunking.chunk_mode = "fixed"
     config.chunking.chunk_size    = 8   # each section is exactly one chunk
     config.chunking.overlap       = 0
     config.chunking.min_chunk_size = 1
@@ -514,6 +521,7 @@ def test_classifier_ranges_have_remove_action():
         WordSegment(word="everywhere", start=1.0, end=1.5, score=1.0),
     ]
     config = AppConfig()
+    config.chunking.chunk_mode = "fixed"
     config.chunking.chunk_size = 200  # single chunk
     chunks = create_chunks(words, config.chunking)
     results = [mock_classify_chunk(c) for c in chunks]
@@ -544,6 +552,77 @@ def test_mute_then_remove_edl_has_mixed_actions():
         assert "total_removed_seconds" in edl
     finally:
         os.unlink(tmp)
+
+
+# ---------------------------------------------------------------------------
+# Sentence chunking tests
+# ---------------------------------------------------------------------------
+
+def test_sentence_chunker_splits_on_punctuation():
+    """Sentence chunker splits on terminal punctuation."""
+    from audiobook_cleaner.transcriber import WordSegment
+    from audiobook_cleaner.chunker import create_chunks
+    from audiobook_cleaner.config import ChunkingConfig
+    words = [
+        WordSegment("Hello", 0.0, 0.5, 1.0),
+        WordSegment("world.", 0.5, 1.0, 1.0),   # boundary here
+        WordSegment("How", 1.0, 1.3, 1.0),
+        WordSegment("are", 1.3, 1.6, 1.0),
+        WordSegment("you?", 1.6, 2.0, 1.0),      # boundary here
+    ]
+    config = ChunkingConfig(chunk_mode="sentence")
+    chunks = create_chunks(words, config)
+    assert len(chunks) == 2
+    assert chunks[0].words[0].word == "Hello"
+    assert chunks[1].words[0].word == "How"
+
+
+def test_sentence_chunker_splits_on_pause():
+    """Sentence chunker splits on long pause gap."""
+    from audiobook_cleaner.transcriber import WordSegment
+    from audiobook_cleaner.chunker import create_chunks
+    from audiobook_cleaner.config import ChunkingConfig
+    words = [
+        WordSegment("One", 0.0, 0.5, 1.0),
+        WordSegment("two", 0.5, 1.0, 1.0),
+        # 2-second gap here
+        WordSegment("three", 3.0, 3.5, 1.0),
+        WordSegment("four", 3.5, 4.0, 1.0),
+        WordSegment("five", 4.0, 4.5, 1.0),
+        WordSegment("six", 4.5, 5.0, 1.0),
+        WordSegment("seven.", 5.0, 5.5, 1.0),
+    ]
+    config = ChunkingConfig(chunk_mode="sentence", pause_gap_seconds=1.5)
+    chunks = create_chunks(words, config)
+    assert len(chunks) == 2
+    assert chunks[0].words[-1].word == "two"
+    assert chunks[1].words[0].word == "three"
+
+
+def test_bisection_narrows_flagged_range():
+    """Bisection isolates flagged content to a sub-chunk."""
+    from audiobook_cleaner.transcriber import WordSegment
+    from audiobook_cleaner.chunker import Chunk
+    from audiobook_cleaner.classifier import mock_classify_chunk, _bisect_chunk, _is_flagged
+
+    # Build a chunk where only the second half contains violent words
+    clean_words = [WordSegment(f"word{i}", float(i), float(i)+0.9, 1.0) for i in range(10)]
+    violent_words = [
+        WordSegment("blood", 10.0, 10.9, 1.0),
+        WordSegment("spurted", 11.0, 11.9, 1.0),
+        WordSegment("everywhere", 12.0, 12.9, 1.0),
+    ]
+    all_words = clean_words + violent_words
+    chunk = Chunk(start_time=0.0, end_time=12.9, text=" ".join(w.word for w in all_words), words=all_words)
+
+    results = _bisect_chunk(chunk, mock_classify_chunk, min_seconds=2.0, max_depth=6)
+    flagged = [r for r in results if _is_flagged(r)]
+    assert len(flagged) >= 1
+    # The flagged result should cover only the violent portion, not the full chunk
+    for r in flagged:
+        assert r.end_time <= 13.0
+        # Should not span the full original chunk
+        assert (r.end_time - r.start_time) < (chunk.end_time - chunk.start_time)
 
 
 # ---------------------------------------------------------------------------
@@ -583,4 +662,10 @@ if __name__ == "__main__":
     print("  ✓ classifier ranges have remove action")
     test_mute_then_remove_edl_has_mixed_actions()
     print("  ✓ mute_then_remove EDL has mixed actions")
+    test_sentence_chunker_splits_on_punctuation()
+    print("  ✓ sentence chunker splits on punctuation")
+    test_sentence_chunker_splits_on_pause()
+    print("  ✓ sentence chunker splits on pause")
+    test_bisection_narrows_flagged_range()
+    print("  ✓ bisection narrows flagged range")
     print("\nAll tests passed.")

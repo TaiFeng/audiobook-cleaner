@@ -14,8 +14,11 @@ transcription:
 
 # --- Chunking ------------------------------------------------
 chunking:
-  chunk_size: 800            # Target words per chunk sent to the classifier
-  overlap: 200               # Words of overlap between adjacent chunks
+  chunk_mode: sentence       # 'sentence' (recommended) or 'fixed'
+  max_sentence_words: 120    # max words per sentence-chunk before forcing a split
+  pause_gap_seconds: 1.5     # treat a gap >= this as a sentence boundary
+  chunk_size: 800            # Target words per chunk sent to the classifier (fixed mode)
+  overlap: 200               # Words of overlap between adjacent chunks (fixed mode)
   min_chunk_size: 300        # Minimum words (smaller remnants merge into previous chunk)
   max_chunk_size: 1500       # Hard ceiling
 
@@ -47,6 +50,9 @@ classification:
   timeout: 60                # Per-request timeout in seconds
   retry_attempts: 3
   retry_delay: 2.0           # Seconds between retries (multiplied by attempt number)
+  bisect: true               # drill down into flagged chunks to find precise boundaries
+  bisect_min_seconds: 5.0    # stop bisecting when sub-chunk is shorter than this
+  bisect_max_depth: 6        # max recursion depth (safety cap)
 
 # --- Sensitivity ---------------------------------------------
 # Choose: "strict", "moderate", or "minimal"
