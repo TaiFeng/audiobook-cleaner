@@ -483,7 +483,6 @@ input[type="range"]::-moz-range-thumb {
 </head>
 <body>
 
-<!-- Header -->
 <header>
   <div class="logo">
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
@@ -510,12 +509,10 @@ input[type="range"]::-moz-range-thumb {
   </div>
 </header>
 
-<!-- Load screen -->
 <div id="load-screen">
   <div class="load-title">Review &amp; Adjust Cuts</div>
   <div class="load-sub">Load your EDL and transcript to inspect flagged segments and fine-tune cut boundaries.</div>
   <div class="drop-zone-row">
-    <!-- EDL drop zone -->
     <div class="drop-zone" id="dz-edl" onclick="document.getElementById('fi-edl').click()"
          ondragover="dzDragOver(event,'dz-edl')" ondragleave="dzDragLeave('dz-edl')" ondrop="dzDrop(event,'edl')">
       <input type="file" id="fi-edl" accept=".json" onchange="loadFile(event,'edl')" />
@@ -528,7 +525,6 @@ input[type="range"]::-moz-range-thumb {
       <div class="drop-hint">Edit Decision List</div>
       <div class="drop-filename" id="dz-edl-name" style="display:none"></div>
     </div>
-    <!-- Transcript drop zone -->
     <div class="drop-zone" id="dz-tx" onclick="document.getElementById('fi-tx').click()"
          ondragover="dzDragOver(event,'dz-tx')" ondragleave="dzDragLeave('dz-tx')" ondrop="dzDrop(event,'transcript')">
       <input type="file" id="fi-tx" accept=".json" onchange="loadFile(event,'transcript')" />
@@ -547,7 +543,6 @@ input[type="range"]::-moz-range-thumb {
   </button>
 </div>
 
-<!-- Review screen -->
 <div id="review-screen">
   <div class="context-bar">
     <label for="ctx-words">Context words:</label>
@@ -828,7 +823,7 @@ function buildCard(e) {
         />
         <div class="slider-time-value" id="sv-end-${e.idx}">${fmt(e.end)}</div>
       </div>
-      <div class="slider-hint">Drag to adjust. Releases snap to the nearest WhisperX word boundary.</div>
+      <div class="slider-hint">Drag to adjust (snaps to words). Select slider and use <strong>Arrows</strong> to jump to the next/previous word boundary.</div>
     </div>
 
     <div class="card-footer">
@@ -849,14 +844,12 @@ function attachSliders(e) {
   const slEnd   = document.getElementById(`sl-end-${e.idx}`);
   if (!slStart || !slEnd) return;
 
-  // Build snap points from words in the vicinity
   const ctxWords = parseInt(document.getElementById('ctx-words').value) || 50;
   const vicinity = txWords.filter(w =>
     w.end >= Math.max(0, e.start - 60) && w.start <= e.end + 60
   );
 
   function nearestWordBoundary(t, type) {
-    // type = 'start' snaps to word starts, 'end' snaps to word ends
     if (!vicinity.length) return t;
     let best = null, bestDist = Infinity;
     vicinity.forEach(w => {
@@ -867,15 +860,72 @@ function attachSliders(e) {
     return best ?? t;
   }
 
+  // --- NEW: Custom keyboard handler to jump between snaps ---
+  function getNextSnap(current, type, dir) {
+    // Get all valid snap points for this type (starts or ends)
+    const points = vicinity.map(w => type === 'start' ? w.start : w.end);
+    // Remove duplicates and sort numerically
+    const uniquePoints = [...new Set(points)].sort((a, b) => a - b);
+    
+    // Add a tiny buffer (0.001) to handle floating point imprecision
+    if (dir === 1) {
+      return uniquePoints.find(p => p > current + 0.001) ?? current;
+    } else {
+      return uniquePoints.slice().reverse().find(p => p < current - 0.001) ?? current;
+    }
+  }
+
+  function handleKeydown(evt, type) {
+    if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(evt.key)) {
+      evt.preventDefault(); // Stop native HTML range stepping
+      
+      const slider = type === 'start' ? slStart : slEnd;
+      const dir = (evt.key === 'ArrowRight' || evt.key === 'ArrowUp') ? 1 : -1;
+      
+      let currentVal = type === 'start' ? e.start : e.end;
+      let snapped = getNextSnap(currentVal, type, dir);
+
+      // Apply and constrain to bounds
+      if (type === 'start') {
+        if (snapped >= e.end) return; // Don't push past the end slider
+        e.start = snapped;
+        slStart.value = snapped.toFixed(3);
+        document.getElementById(`sv-start-${e.idx}`).textContent = fmt(snapped);
+        slEnd.min = (snapped + 0.001).toFixed(3);
+      } else {
+        if (snapped <= e.start) return; // Don't push past the start slider
+        e.end = snapped;
+        slEnd.value = snapped.toFixed(3);
+        document.getElementById(`sv-end-${e.idx}`).textContent = fmt(snapped);
+        slStart.max = (snapped - 0.001).toFixed(3);
+      }
+
+      // Mark as keyboard-edited so the subsequent 'change' event doesn't interfere
+      slider.dataset.keyboardEdited = "true";
+
+      updateCardFooter(e);
+      rerenderTranscript(e);
+      updateSidebarItem(e);
+    }
+  }
+
+  slStart.addEventListener('keydown', (evt) => handleKeydown(evt, 'start'));
+  slEnd.addEventListener('keydown',   (evt) => handleKeydown(evt, 'end'));
+
+  // --- Mouse input events ---
   slStart.addEventListener('input', () => {
+    slStart.dataset.keyboardEdited = "false";
     const raw = parseFloat(slStart.value);
     document.getElementById(`sv-start-${e.idx}`).textContent = fmt(raw);
-    // Enforce start < end
     if (raw >= e.end) slStart.value = (e.end - 0.001).toFixed(3);
-    slEnd.min = (raw + 0.001).toFixed(3);
+    slEnd.min = (parseFloat(slStart.value) + 0.001).toFixed(3);
   });
 
   slStart.addEventListener('change', () => {
+    if (slStart.dataset.keyboardEdited === "true") {
+      slStart.dataset.keyboardEdited = "false"; // Reset flag
+      return; 
+    }
     const raw = parseFloat(slStart.value);
     const snapped = nearestWordBoundary(raw, 'start');
     e.start = snapped;
@@ -888,13 +938,18 @@ function attachSliders(e) {
   });
 
   slEnd.addEventListener('input', () => {
+    slEnd.dataset.keyboardEdited = "false";
     const raw = parseFloat(slEnd.value);
     document.getElementById(`sv-end-${e.idx}`).textContent = fmt(raw);
     if (raw <= e.start) slEnd.value = (e.start + 0.001).toFixed(3);
-    slStart.max = (raw - 0.001).toFixed(3);
+    slStart.max = (parseFloat(slEnd.value) - 0.001).toFixed(3);
   });
 
   slEnd.addEventListener('change', () => {
+    if (slEnd.dataset.keyboardEdited === "true") {
+      slEnd.dataset.keyboardEdited = "false"; // Reset flag
+      return; 
+    }
     const raw = parseFloat(slEnd.value);
     const snapped = nearestWordBoundary(raw, 'end');
     e.end = snapped;
