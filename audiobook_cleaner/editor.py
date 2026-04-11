@@ -48,6 +48,11 @@ def _get_duration(path: Path) -> float:
     return float(result.stdout.strip())
 
 
+def get_audio_duration(path: str | Path) -> float:
+    """Public wrapper — return the duration of *path* in seconds."""
+    return _get_duration(Path(path))
+
+
 def probe_audio(path: Path) -> dict:
     """
     Read audio stream properties from *path* using ffprobe.
