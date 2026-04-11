@@ -211,13 +211,17 @@ def _apply_mute(
     af = _build_mute_filter(ranges)
     cmd = [
         _check_ffmpeg(), "-y", "-i", str(input_path),
+        "-vn",  # drop cover-art / video streams (e.g. m4b chapter art)
         "-af", af,
         *extra_args,
         str(output_path),
     ]
     logger.info("Running mute edit (%d ranges) …", len(ranges))
     logger.debug("ffmpeg cmd: %s", " ".join(cmd))
-    subprocess.run(cmd, check=True, capture_output=True)
+    result = subprocess.run(cmd, capture_output=True)
+    if result.returncode != 0:
+        logger.error("FFmpeg stderr:\n%s", result.stderr.decode(errors="replace"))
+        raise subprocess.CalledProcessError(result.returncode, cmd)
 
 
 # ---------------------------------------------------------------------------
@@ -271,13 +275,16 @@ def _apply_remove(
     cmd = [
         _check_ffmpeg(), "-y", "-i", str(input_path),
         "-filter_complex", fc,
-        "-map", "[out]",
+        "-map", "[out]",  # explicit audio-only map; no video streams
         *extra_args,
         str(output_path),
     ]
     logger.info("Running remove edit (%d ranges, duration=%.1fs) …", len(ranges), duration)
     logger.debug("ffmpeg cmd: %s", " ".join(cmd))
-    subprocess.run(cmd, check=True, capture_output=True)
+    result = subprocess.run(cmd, capture_output=True)
+    if result.returncode != 0:
+        logger.error("FFmpeg stderr:\n%s", result.stderr.decode(errors="replace"))
+        raise subprocess.CalledProcessError(result.returncode, cmd)
 
 
 # ---------------------------------------------------------------------------
