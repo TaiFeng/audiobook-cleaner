@@ -12,7 +12,8 @@ A local-first, family-friendly audiobook processing tool.  Transcribes audiobook
 | **Profanity filter** | Configurable banned-word list — instant muting at the word level |
 | **AI classification** | Chunk-based detection of sexual content, graphic violence, drug use, and mature themes |
 | **Review before edit** | CSV + JSON reports and an Edit Decision List (EDL) you can inspect and adjust |
-| **Two edit modes** | *Mute* (silence flagged ranges) or *Remove* (cut them entirely) |
+| **Three edit modes** | *Mute* (silence flagged words), *Remove* (cut flagged ranges), or *Mute-then-Remove* (mute banned words + cut AI-flagged scenes in two passes — default) |
+| **Tighter AI cuts** | Classifier returns precise segment timestamps within each chunk, so only the offending lines are cut rather than the entire chunk span |
 | **Sensitivity presets** | Strict / Moderate / Minimal — each with tunable confidence and severity thresholds |
 | **API-agnostic** | Works with OpenAI, LM Studio, Ollama, or any OpenAI-compatible endpoint |
 
@@ -141,6 +142,29 @@ Review the CSV/JSON reports in the output directory, then apply edits:
 python main.py clean -i book.m4b --edl "book_cleaned/edl.json"
 ```
 
+### Edit modes
+
+Audiobook Cleaner uses a two-pass strategy by default:
+
+1. **Mute pass** — banned words (from `banned_words.txt`) are silenced at word-level precision. File length is unchanged.
+2. **Remove pass** — AI-flagged scenes are cut entirely, working in reverse chronological order so earlier timestamps are not shifted by later cuts.
+
+The AI classifier returns tight `segment_start` / `segment_end` timestamps identifying exactly where within a chunk the objectionable content sits, so cuts are as short as possible.
+
+Override the mode with `-m`:
+
+```bash
+python main.py run -i book.m4b -m mute             # banned words only, no cuts
+python main.py run -i book.m4b -m remove           # AI cuts only, no muting
+python main.py run -i book.m4b -m mute_then_remove # both passes (default)
+```
+
+The `clean` subcommand defaults to `mute` for backward compatibility with existing EDLs:
+
+```bash
+python main.py clean -i book.m4b --edl book_cleaned/edl.json -m mute_then_remove
+```
+
 ### Override sensitivity and mode
 
 ```bash
@@ -158,8 +182,9 @@ python main.py run -i book.mp3 -s strict -m remove
 | `analyze` | Classify an existing transcript (no audio needed) |
 | `clean` | Apply a saved EDL to audio (no re-analysis) |
 | `dry-run` | Validate pipeline with mock data |
+| `batch` | Process multiple files; use `--join` for cross-boundary detection |
 
-Common flags: `-i INPUT`, `-o OUTPUT`, `-c CONFIG`, `-s SENSITIVITY`, `-m MODE`, `-v` (verbose), `--report-only`.
+Common flags: `-i INPUT`, `-o OUTPUT`, `-c CONFIG`, `-s SENSITIVITY`, `-m MODE` (`mute` / `remove` / `mute_then_remove`), `-v` (verbose), `--report-only`.
 
 ---
 
@@ -210,9 +235,13 @@ The prompt asks for a JSON response with:
   "contains_mature_themes": false,
   "severity": "moderate",
   "confidence": 0.85,
-  "reason": "Detailed description of battlefield injuries and gore."
+  "reason": "Detailed description of battlefield injuries and gore.",
+  "segment_start": 142.3,
+  "segment_end": 198.7
 }
 ```
+
+`segment_start` and `segment_end` identify the tightest timestamp boundaries within the chunk where the objectionable content occurs. The editor uses these for precise cuts instead of cutting the entire chunk span. Both are `null` if the entire chunk is flagged.
 
 Sensitivity guidance is injected per chunk so the model's threshold shifts with your chosen preset.
 
@@ -233,7 +262,7 @@ After a full run, the output directory contains:
 | `report/flagged_ranges.json` | Same, in JSON |
 | `report/profanity_hits.json` | Word-level profanity detections |
 | `report/summary.json` | Aggregate statistics |
-| `edl.json` | Edit Decision List (reload with `clean` command) |
+| `edl.json` | Edit Decision List — one entry per flagged range with `action: "mute"` or `action: "remove"`. Reload with `clean` command or edit manually before applying. |
 | `*_clean.mp3` | Cleaned audiobook file |
 
 ---
@@ -267,9 +296,10 @@ After a full run, the output directory contains:
 
 ### Audio Editing (FFmpeg)
 
-- Mute mode: ~1–3 minutes for a 10-hr file (single-pass filter).
-- Remove mode: ~3–8 minutes (requires trim + concat).
-- Bottleneck is re-encoding.  If you match the input codec, FFmpeg can stream-copy unaffected segments.
+- **Mute mode:** ~1–3 minutes for a 10-hr file (single-pass volume filter).
+- **Remove mode:** ~3–8 minutes (requires trim + concat re-encode).
+- **Mute-then-Remove mode (default):** two sequential FFmpeg passes; total time is roughly the sum of the above. A temporary intermediate file is written and deleted automatically.
+- Bottleneck is re-encoding. The tool probes the source file and matches its bitrate, sample rate, and channel count to avoid unnecessary quality loss or size inflation.
 
 ### Memory
 
@@ -290,7 +320,7 @@ After a full run, the output directory contains:
 3. **Edit the EDL** manually if needed (it is plain JSON).
 4. **Apply edits** when satisfied:
    ```bash
-   python main.py clean -i book.m4b --edl book_cleaned/edl.json -m mute
+   python main.py clean -i book.m4b --edl book_cleaned/edl.json -m mute_then_remove
    ```
 
 ---
@@ -300,7 +330,7 @@ After a full run, the output directory contains:
 - **Custom categories:** Add new classification fields in `classifier.py` and update the system prompt.
 - **Chapter awareness:** Parse M4B chapter metadata and include chapter info in chunks/reports.
 - **Web UI:** Wrap the pipeline in a Flask/FastAPI app for a review dashboard.
-- **Batch processing:** Loop over a directory of audiobooks with a shell script.
+- **Batch processing:** Use the built-in `batch` subcommand to process a directory of MP3 or M4B files. Use `--join` to combine transcripts across chapter files for cross-boundary detection.
 - **Speaker diarization:** WhisperX supports diarization — add speaker labels to improve classification context.
 
 ---
