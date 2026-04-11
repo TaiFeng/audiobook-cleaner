@@ -60,6 +60,17 @@ goddamned
 goddamning
 goddammit
 
+# --- Blasphemy (expletive/contemptuous use) ---
+# These forms are unambiguous expletives, not narrative religious references.
+# For context-dependent cases (e.g. "Jesus Christ" as exclamation in dialogue),
+# the AI classifier handles detection.
+godforsaken
+christ almighty
+holy shit
+holy hell
+holy crap
+jesus christ
+
 # --- Slurs (always mute) ---
 # Add any slurs relevant to your content here.
 # We intentionally do not ship a slur list but recommend

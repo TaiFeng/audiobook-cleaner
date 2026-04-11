@@ -112,6 +112,7 @@ def generate_report(
             "graphic_violence": sum(1 for r in results if r.contains_graphic_violence),
             "drug_content": sum(1 for r in results if r.contains_drug_content),
             "mature_themes": sum(1 for r in results if r.contains_mature_themes),
+            "blasphemy": sum(1 for r in results if r.contains_blasphemy),
         },
         "report_files": written_files,
     }
@@ -132,6 +133,7 @@ def _write_chunk_csv(results: List[ChunkResult], path: Path) -> None:
         "chunk_index", "start_time", "end_time", "word_count",
         "contains_explicit_sex", "contains_graphic_violence",
         "contains_drug_content", "contains_mature_themes",
+        "contains_blasphemy",
         "severity", "confidence", "reason", "text_preview",
     ]
     with open(path, "w", newline="", encoding="utf-8") as fh:

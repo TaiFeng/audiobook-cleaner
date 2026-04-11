@@ -625,6 +625,40 @@ def test_bisection_narrows_flagged_range():
         assert (r.end_time - r.start_time) < (chunk.end_time - chunk.start_time)
 
 
+def test_mock_classifier_flags_blasphemy():
+    """Mock classifier detects blasphemous expletive use."""
+    from audiobook_cleaner.transcriber import WordSegment
+    from audiobook_cleaner.chunker import Chunk
+    from audiobook_cleaner.classifier import mock_classify_chunk
+    words = [
+        WordSegment("Christ", 0.0, 0.5, 1.0),
+        WordSegment("almighty,", 0.5, 1.0, 1.0),
+        WordSegment("what", 1.0, 1.3, 1.0),
+        WordSegment("happened?", 1.3, 1.8, 1.0),
+    ]
+    chunk = Chunk(start_time=0.0, end_time=1.8, text="Christ almighty, what happened?", words=words)
+    result = mock_classify_chunk(chunk)
+    assert result.contains_blasphemy is True
+    assert result.severity != "none"
+
+def test_mock_classifier_does_not_flag_religious_narrative():
+    """Mock classifier does not flag respectful religious narrative."""
+    from audiobook_cleaner.transcriber import WordSegment
+    from audiobook_cleaner.chunker import Chunk
+    from audiobook_cleaner.classifier import mock_classify_chunk
+    words = [
+        WordSegment("Jesus", 0.0, 0.5, 1.0),
+        WordSegment("said", 0.5, 0.8, 1.0),
+        WordSegment("unto", 0.8, 1.1, 1.0),
+        WordSegment("them,", 1.1, 1.5, 1.0),
+        WordSegment("follow", 1.5, 1.8, 1.0),
+        WordSegment("me.", 1.8, 2.1, 1.0),
+    ]
+    chunk = Chunk(start_time=0.0, end_time=2.1, text="Jesus said unto them, follow me.", words=words)
+    result = mock_classify_chunk(chunk)
+    assert result.contains_blasphemy is False
+
+
 # ---------------------------------------------------------------------------
 # Direct execution
 # ---------------------------------------------------------------------------
@@ -668,4 +702,8 @@ if __name__ == "__main__":
     print("  ✓ sentence chunker splits on pause")
     test_bisection_narrows_flagged_range()
     print("  ✓ bisection narrows flagged range")
+    test_mock_classifier_flags_blasphemy()
+    print("  ✓ mock classifier flags blasphemy")
+    test_mock_classifier_does_not_flag_religious_narrative()
+    print("  ✓ mock classifier does not flag religious narrative")
     print("\nAll tests passed.")

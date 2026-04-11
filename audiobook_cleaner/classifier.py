@@ -40,6 +40,7 @@ class ChunkResult:
     contains_graphic_violence: bool = False
     contains_drug_content: bool = False
     contains_mature_themes: bool = False
+    contains_blasphemy: bool = False
     severity: str = "none"      # none | mild | moderate | severe
     confidence: float = 0.0
     reason: str = ""
@@ -58,6 +59,7 @@ class ChunkResult:
             self.contains_graphic_violence,
             self.contains_drug_content,
             self.contains_mature_themes,
+            self.contains_blasphemy,
         ])
 
 
@@ -111,6 +113,12 @@ miss harmful content.  When in doubt, FLAG IT.
    Strong profanity, self-harm, suicide, intense psychological horror,
    racial slurs, hate speech, or other content unsuitable for children.
 
+5. **Blasphemy** (`contains_blasphemy`)
+   Religious names, deities, or sacred concepts used as expletives, curses,
+   or in a contemptuous or mocking manner.  Do NOT flag respectful religious
+   discussion, prayer, scripture quotation, or narrative use of religious
+   figures and events.
+
 ## Severity Scale
 - **none** — No concerning content.
 - **mild** — Borderline; might concern very protective parents.
@@ -138,6 +146,7 @@ Respond with ONLY valid JSON — no markdown fencing, no commentary:
   "contains_graphic_violence": <bool>,
   "contains_drug_content": <bool>,
   "contains_mature_themes": <bool>,
+  "contains_blasphemy": <bool>,
   "severity": "<none|mild|moderate|severe>",
   "confidence": <float 0.0–1.0>,
   "reason": "<brief explanation of flags, or 'No concerning content detected'>",
@@ -163,7 +172,21 @@ def _call_api(
     """Send one chunk to the classification API and parse the response."""
 
     guidance = SENSITIVITY_GUIDANCE.get(sensitivity, SENSITIVITY_GUIDANCE["moderate"])
-    user_msg = USER_PROMPT_TEMPLATE.format(
+
+    system_prompt = SYSTEM_PROMPT
+    user_template = USER_PROMPT_TEMPLATE
+    if not config.screen_blasphemy:
+        # Strip blasphemy from the prompt schema so the model never returns it
+        system_prompt = "\n".join(
+            line for line in system_prompt.splitlines()
+            if "contains_blasphemy" not in line and "Blasphemy" not in line
+        )
+        user_template = "\n".join(
+            line for line in user_template.splitlines()
+            if "contains_blasphemy" not in line
+        )
+
+    user_msg = user_template.format(
         sensitivity=sensitivity,
         sensitivity_guidance=guidance,
         chunk_index=chunk.index,
@@ -178,7 +201,7 @@ def _call_api(
         "model": config.model,
         "temperature": config.temperature,
         "messages": [
-            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_msg},
         ],
     }
@@ -226,6 +249,7 @@ def _call_api(
                 contains_graphic_violence=bool(parsed.get("contains_graphic_violence", False)),
                 contains_drug_content=bool(parsed.get("contains_drug_content", False)),
                 contains_mature_themes=bool(parsed.get("contains_mature_themes", False)),
+                contains_blasphemy=bool(parsed.get("contains_blasphemy", False)) if config.screen_blasphemy else False,
                 severity=parsed.get("severity", "none"),
                 confidence=float(parsed.get("confidence", 0.0)),
                 reason=parsed.get("reason", ""),
@@ -355,7 +379,26 @@ def mock_classify_chunk(chunk: Chunk, sensitivity: str = "moderate") -> ChunkRes
         "suicide", "self-harm", "racial slur",
     ])
 
-    flags = [sex, violence, drugs, mature]
+    # Blasphemy: detect religious names/concepts used as expletives.
+    # Narrative context words indicate respectful/story use, not expletives.
+    _narrative_ctx = {"said", "replied", "answered", "told", "asked"}
+    blasphemy = False
+    # Simple phrase matches (unambiguous expletive forms)
+    if any(kw in text_lower for kw in [
+        "god damn", "goddamn", "holy shit", "holy hell", "holy crap",
+        "christ almighty", "jesus f",
+        "for christ's sake", "for god's sake",
+    ]):
+        blasphemy = True
+    # "jesus christ" as exclamation — only flag if NOT preceded by narrative context
+    if not blasphemy and "jesus christ" in text_lower:
+        idx = text_lower.index("jesus christ")
+        # Check words immediately before the phrase for narrative context
+        before = text_lower[:idx].split()
+        if not before or before[-1].rstrip(".,;:!?") not in _narrative_ctx:
+            blasphemy = True
+
+    flags = [sex, violence, drugs, mature, blasphemy]
     is_flagged = any(flags)
 
     if not is_flagged:
@@ -371,6 +414,12 @@ def mock_classify_chunk(chunk: Chunk, sensitivity: str = "moderate") -> ChunkRes
         severity = "mild" if sensitivity == "strict" else "moderate"
         confidence = 0.75
 
+    # Blasphemy alone should be at least mild severity with 0.8 confidence
+    if blasphemy and not any([sex, violence, drugs, mature]):
+        confidence = max(confidence, 0.8)
+        if severity == "none":
+            severity = "mild"
+
     reasons = []
     if sex:
         reasons.append("sexual content keywords detected")
@@ -380,6 +429,8 @@ def mock_classify_chunk(chunk: Chunk, sensitivity: str = "moderate") -> ChunkRes
         reasons.append("drug-related keywords detected")
     if mature:
         reasons.append("mature language / themes detected")
+    if blasphemy:
+        reasons.append("Blasphemous use of religious name/concept as expletive")
 
     return ChunkResult(
         chunk_index=chunk.index,
@@ -389,6 +440,7 @@ def mock_classify_chunk(chunk: Chunk, sensitivity: str = "moderate") -> ChunkRes
         contains_graphic_violence=violence,
         contains_drug_content=drugs,
         contains_mature_themes=mature,
+        contains_blasphemy=blasphemy,
         severity=severity,
         confidence=confidence,
         reason="; ".join(reasons) if reasons else "No concerning content detected",

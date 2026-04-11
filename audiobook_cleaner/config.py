@@ -70,6 +70,7 @@ class ClassificationConfig:
     bisect: bool = True                 # drill down into flagged chunks to find precise boundaries
     bisect_min_seconds: float = 5.0     # stop bisecting when sub-chunk is shorter than this
     bisect_max_depth: int = 6           # max recursion depth (safety cap)
+    screen_blasphemy: bool = True       # flag religious names/concepts used as expletives or curses
 
 
 @dataclass
