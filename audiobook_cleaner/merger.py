@@ -26,6 +26,8 @@ def merge_ranges(
     """
     Sort ranges by start time, add *padding_seconds*, then merge overlaps.
 
+    Only merges overlapping ranges that share the same ``action`` value.
+
     Returns a new list of non-overlapping FlaggedRange objects.
     """
     if not ranges:
@@ -41,6 +43,7 @@ def merge_ranges(
             source=r.source,
             severity=r.severity,
             confidence=r.confidence,
+            action=r.action,
         ))
 
     padded.sort(key=lambda r: r.start)
@@ -48,8 +51,8 @@ def merge_ranges(
     merged: List[FlaggedRange] = [padded[0]]
     for current in padded[1:]:
         prev = merged[-1]
-        if current.start <= prev.end:
-            # Overlapping — extend and combine reasons
+        if current.start <= prev.end and current.action == prev.action:
+            # Overlapping with same action — extend and combine reasons
             reasons = set(prev.reason.split(" | ")) | set(current.reason.split(" | "))
             merged[-1] = FlaggedRange(
                 start=prev.start,
@@ -58,6 +61,7 @@ def merge_ranges(
                 source=f"{prev.source}+{current.source}" if prev.source != current.source else prev.source,
                 severity=max(prev.severity, current.severity, key=lambda s: {"none": 0, "mild": 1, "moderate": 2, "severe": 3}.get(s, 0)),
                 confidence=max(prev.confidence, current.confidence),
+                action=prev.action,
             )
         else:
             merged.append(current)
@@ -97,13 +101,17 @@ def build_ranges_from_results(
             )
             continue
 
+        # Use tighter segment timestamps when available
+        start = r.segment_start if r.segment_start is not None and r.segment_end is not None else r.start_time
+        end = r.segment_end if r.segment_start is not None and r.segment_end is not None else r.end_time
         ranges.append(FlaggedRange(
-            start=r.start_time,
-            end=r.end_time,
+            start=start,
+            end=end,
             reason=r.reason,
             source="classifier",
             severity=r.severity,
             confidence=r.confidence,
+            action="remove",
         ))
 
     logger.info(

@@ -51,7 +51,9 @@ def build_parser() -> argparse.ArgumentParser:
     p_run.add_argument("-o", "--output", help="Output path (default: <input>_clean.<ext>)")
     p_run.add_argument("-c", "--config", default="config.yaml", help="YAML config file")
     p_run.add_argument("-s", "--sensitivity", choices=["strict", "moderate", "minimal"])
-    p_run.add_argument("-m", "--mode", choices=["mute", "remove"], help="Edit mode")
+    p_run.add_argument("-m", "--mode", choices=["mute", "remove", "mute_then_remove"],
+                       default="mute_then_remove",
+                       help="Edit mode: mute (silence), remove (cut), or mute_then_remove (silence profanity, cut classifier hits)")
     p_run.add_argument("--report-only", action="store_true", help="Generate report; skip audio edit")
     p_run.add_argument("-v", "--verbose", action="store_true")
 
@@ -75,7 +77,8 @@ def build_parser() -> argparse.ArgumentParser:
     p_cl.add_argument("-i", "--input", required=True)
     p_cl.add_argument("--edl", required=True, help="Edit Decision List JSON")
     p_cl.add_argument("-o", "--output")
-    p_cl.add_argument("-m", "--mode", choices=["mute", "remove"])
+    p_cl.add_argument("-m", "--mode", choices=["mute", "remove", "mute_then_remove"],
+                       help="Edit mode: mute (silence), remove (cut), or mute_then_remove (two-pass)")
     p_cl.add_argument("-c", "--config", default="config.yaml")
     p_cl.add_argument("-v", "--verbose", action="store_true")
 
@@ -98,7 +101,9 @@ def build_parser() -> argparse.ArgumentParser:
                        help="Generate report without writing audio output")
     p_ba.add_argument("-s", "--sensitivity", choices=["strict", "moderate", "minimal"],
                        default="moderate")
-    p_ba.add_argument("-m", "--mode", choices=["mute", "beep"], default="mute")
+    p_ba.add_argument("-m", "--mode", choices=["mute", "remove", "mute_then_remove"],
+                       default="mute_then_remove",
+                       help="Edit mode: mute (silence), remove (cut), or mute_then_remove (two-pass)")
     p_ba.add_argument("-c", "--config", default="config.yaml", help="Path to config YAML")
     p_ba.add_argument("-v", "--verbose", action="store_true")
 

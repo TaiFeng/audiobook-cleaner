@@ -17,6 +17,7 @@ import json
 import logging
 import subprocess
 import shutil
+import tempfile
 from pathlib import Path
 from typing import List, Optional
 
@@ -345,8 +346,31 @@ def apply_edits(
         _apply_mute(input_path, output_path, ranges, extra)
     elif mode == "remove":
         _apply_remove(input_path, output_path, ranges, extra)
+    elif mode == "mute_then_remove":
+        mute_ranges = [r for r in ranges if r.action == "mute"]
+        remove_ranges = sorted(
+            [r for r in ranges if r.action == "remove"],
+            key=lambda r: r.start, reverse=True,
+        )
+        if mute_ranges and remove_ranges:
+            tmp = tempfile.NamedTemporaryFile(
+                suffix=output_path.suffix, delete=False,
+            )
+            tmp_path = Path(tmp.name)
+            tmp.close()
+            try:
+                _apply_mute(input_path, tmp_path, mute_ranges, extra)
+                _apply_remove(tmp_path, output_path, remove_ranges, extra)
+            finally:
+                tmp_path.unlink(missing_ok=True)
+        elif mute_ranges:
+            _apply_mute(input_path, output_path, mute_ranges, extra)
+        elif remove_ranges:
+            _apply_remove(input_path, output_path, remove_ranges, extra)
+        else:
+            shutil.copy2(input_path, output_path)
     else:
-        raise ValueError(f"Unknown edit mode: {mode!r} (expected 'mute' or 'remove')")
+        raise ValueError(f"Unknown edit mode: {mode!r} (expected 'mute', 'remove', or 'mute_then_remove')")
 
     logger.info("Cleaned audiobook written to %s", output_path)
     return output_path
@@ -365,16 +389,17 @@ def write_edl(
     Write an Edit Decision List (JSON) describing all modifications.
 
     The EDL can be reloaded later to re-apply edits or adjust them.
+    The *mode* parameter is accepted for backward compatibility but ignored;
+    the action comes from each FlaggedRange's ``action`` field.
     """
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
 
     entries = []
     for i, r in enumerate(ranges, 1):
-        h_s, m_s = divmod(int(r.start), 3600), None  # compute below
         entries.append({
             "edit_number": i,
-            "action": mode,
+            "action": r.action,
             "start": r.start,
             "end": r.end,
             "start_formatted": _fmt_time(r.start),
@@ -386,11 +411,14 @@ def write_edl(
             "confidence": r.confidence,
         })
 
+    total_muted = round(sum(e["duration"] for e in entries if e["action"] == "mute"), 2)
+    total_removed = round(sum(e["duration"] for e in entries if e["action"] == "remove"), 2)
+
     edl = {
         "version": "1.0",
-        "mode": mode,
         "total_edits": len(entries),
-        "total_edited_seconds": round(sum(e["duration"] for e in entries), 2),
+        "total_muted_seconds": total_muted,
+        "total_removed_seconds": total_removed,
         "edits": entries,
     }
 
@@ -399,6 +427,24 @@ def write_edl(
 
     logger.info("EDL written to %s (%d edits).", path, len(entries))
     return path
+
+
+def load_edl(path: str | Path) -> List[FlaggedRange]:
+    """Load an EDL JSON and reconstruct FlaggedRange objects."""
+    with open(path, encoding="utf-8") as fh:
+        edl = json.load(fh)
+    ranges = []
+    for e in edl["edits"]:
+        ranges.append(FlaggedRange(
+            start=e["start"],
+            end=e["end"],
+            reason=e.get("reason", ""),
+            source=e.get("source", ""),
+            severity=e.get("severity", "moderate"),
+            confidence=e.get("confidence", 1.0),
+            action=e.get("action", "mute"),
+        ))
+    return ranges
 
 
 def _fmt_time(seconds: float) -> str:

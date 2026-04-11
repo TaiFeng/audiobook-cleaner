@@ -19,7 +19,7 @@ from .chunker import create_chunks, Chunk
 from .classifier import classify_chunks, mock_classify_chunk, ChunkResult
 from .merger import merge_ranges, build_ranges_from_results
 from .reporter import generate_report
-from .editor import apply_edits, write_edl, get_audio_duration
+from .editor import apply_edits, write_edl, load_edl, get_audio_duration
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +37,7 @@ def _clip_ranges_to_file(merged, file_start: float, file_end: float):
             source=r.source,
             severity=r.severity,
             confidence=r.confidence,
+            action=r.action,
         ))
     return local_ranges
 
@@ -185,19 +186,8 @@ class Pipeline:
         output_path: Optional[str] = None,
     ) -> None:
         inp = Path(input_path)
-        with open(edl_path, "r", encoding="utf-8") as fh:
-            edl = json.load(fh)
-
-        ranges = [
-            FlaggedRange(
-                start=e["start"], end=e["end"],
-                reason=e["reason"], source=e.get("source", "edl"),
-                severity=e.get("severity", "moderate"),
-                confidence=e.get("confidence", 1.0),
-            )
-            for e in edl["edits"]
-        ]
-        mode = edl.get("mode", self.config.output.mode)
+        ranges = load_edl(edl_path)
+        mode = self.config.output.mode
 
         if not output_path:
             suffix = inp.suffix

@@ -29,6 +29,7 @@ class FlaggedRange:
     source: str          # "profanity" | "classifier"
     severity: str = "severe"
     confidence: float = 1.0
+    action: str = "mute"  # "mute" | "remove"
 
 
 # ---------------------------------------------------------------------------

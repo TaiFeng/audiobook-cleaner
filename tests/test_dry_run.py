@@ -493,6 +493,60 @@ def test_zero_padding_pipeline_boundaries_are_word_aligned():
 
 
 # ---------------------------------------------------------------------------
+# New tests for mute_then_remove feature
+# ---------------------------------------------------------------------------
+
+def test_flagged_range_action_defaults_to_mute():
+    from audiobook_cleaner.profanity import FlaggedRange
+    r = FlaggedRange(start=1.0, end=2.0, reason="test", source="profanity", severity="moderate", confidence=1.0)
+    assert r.action == "mute"
+
+
+def test_classifier_ranges_have_remove_action():
+    from audiobook_cleaner.transcriber import WordSegment
+    from audiobook_cleaner.chunker import create_chunks
+    from audiobook_cleaner.classifier import mock_classify_chunk
+    from audiobook_cleaner.merger import build_ranges_from_results
+    from audiobook_cleaner.config import AppConfig
+    words = [
+        WordSegment(word="blood", start=0.0, end=0.5, score=1.0),
+        WordSegment(word="spurted", start=0.5, end=1.0, score=1.0),
+        WordSegment(word="everywhere", start=1.0, end=1.5, score=1.0),
+    ]
+    config = AppConfig()
+    config.chunking.chunk_size = 200  # single chunk
+    chunks = create_chunks(words, config.chunking)
+    results = [mock_classify_chunk(c) for c in chunks]
+    flagged = build_ranges_from_results(results, config.active_threshold)
+    for r in flagged:
+        assert r.action == "remove"
+
+
+def test_mute_then_remove_edl_has_mixed_actions():
+    """write_edl with mixed-action ranges produces per-entry action fields and no top-level mode."""
+    import tempfile, json, os
+    from audiobook_cleaner.profanity import FlaggedRange
+    from audiobook_cleaner.editor import write_edl
+    ranges = [
+        FlaggedRange(start=1.0, end=2.0, reason="banned", source="profanity", severity="moderate", confidence=1.0, action="mute"),
+        FlaggedRange(start=10.0, end=20.0, reason="violence", source="classifier", severity="severe", confidence=0.9, action="remove"),
+    ]
+    with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as f:
+        tmp = f.name
+    try:
+        write_edl(ranges, tmp)
+        with open(tmp) as f:
+            edl = json.load(f)
+        assert "mode" not in edl
+        assert edl["edits"][0]["action"] == "mute"
+        assert edl["edits"][1]["action"] == "remove"
+        assert "total_muted_seconds" in edl
+        assert "total_removed_seconds" in edl
+    finally:
+        os.unlink(tmp)
+
+
+# ---------------------------------------------------------------------------
 # Direct execution
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
@@ -523,4 +577,10 @@ if __name__ == "__main__":
     print("  ✓ chunk boundaries are word timestamps")
     test_zero_padding_pipeline_boundaries_are_word_aligned()
     print("  ✓ zero-padding pipeline: all boundaries word-aligned, no bleed")
+    test_flagged_range_action_defaults_to_mute()
+    print("  ✓ FlaggedRange action defaults to mute")
+    test_classifier_ranges_have_remove_action()
+    print("  ✓ classifier ranges have remove action")
+    test_mute_then_remove_edl_has_mixed_actions()
+    print("  ✓ mute_then_remove EDL has mixed actions")
     print("\nAll tests passed.")

@@ -44,6 +44,8 @@ class ChunkResult:
     reason: str = ""
     word_count: int = 0
     text_preview: str = ""      # first 120 chars for the review report
+    segment_start: Optional[float] = None  # tighter start within chunk
+    segment_end: Optional[float] = None    # tighter end within chunk
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -116,6 +118,13 @@ miss harmful content.  When in doubt, FLAG IT.
 
 ## Confidence
 Rate your confidence from 0.0 (guessing) to 1.0 (certain).
+
+## Segment Timestamps
+Return `segment_start` and `segment_end` — the tightest possible timestamps
+(in seconds, floats) identifying where within the chunk the objectionable
+content begins and ends.  These must be within the chunk's start/end span.
+Return null for both if the entire chunk is objectionable or if precise
+boundaries cannot be determined.
 """
 
 USER_PROMPT_TEMPLATE = """\
@@ -130,7 +139,9 @@ Respond with ONLY valid JSON — no markdown fencing, no commentary:
   "contains_mature_themes": <bool>,
   "severity": "<none|mild|moderate|severe>",
   "confidence": <float 0.0–1.0>,
-  "reason": "<brief explanation of flags, or 'No concerning content detected'>"
+  "reason": "<brief explanation of flags, or 'No concerning content detected'>",
+  "segment_start": <float or null>,
+  "segment_end": <float or null>
 }}
 
 --- BEGIN TRANSCRIPT CHUNK (chunk {chunk_index}) ---
@@ -188,6 +199,24 @@ def _call_api(
 
             parsed = json.loads(content)
 
+            # Validate segment_start / segment_end
+            seg_start = parsed.get("segment_start")
+            seg_end = parsed.get("segment_end")
+            if seg_start is not None and seg_end is not None:
+                try:
+                    seg_start = float(seg_start)
+                    seg_end = float(seg_end)
+                except (TypeError, ValueError):
+                    seg_start = None
+                    seg_end = None
+                else:
+                    if seg_start < chunk.start_time or seg_end > chunk.end_time or seg_start >= seg_end:
+                        seg_start = None
+                        seg_end = None
+            else:
+                seg_start = None
+                seg_end = None
+
             return ChunkResult(
                 chunk_index=chunk.index,
                 start_time=chunk.start_time,
@@ -201,6 +230,8 @@ def _call_api(
                 reason=parsed.get("reason", ""),
                 word_count=chunk.word_count,
                 text_preview=chunk.text[:120],
+                segment_start=seg_start,
+                segment_end=seg_end,
             )
 
         except (requests.RequestException, json.JSONDecodeError, KeyError) as exc:
@@ -341,4 +372,6 @@ def mock_classify_chunk(chunk: Chunk, sensitivity: str = "moderate") -> ChunkRes
         reason="; ".join(reasons) if reasons else "No concerning content detected",
         word_count=chunk.word_count,
         text_preview=chunk.text[:120],
+        segment_start=chunk.start_time if is_flagged else None,
+        segment_end=chunk.end_time if is_flagged else None,
     )
