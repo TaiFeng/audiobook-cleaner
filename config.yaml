@@ -20,7 +20,7 @@ transcription:
 chunking:
   chunk_mode: fixed          # first-pass coarse chunking mode: 'fixed' (recommended) or 'sentence'
   chunk_size: 800           # words per chunk for first pass (~250 chunks for a full audiobook)
-  overlap: 0                # no overlap needed; bisection handles precision on flagged chunks
+  overlap: 200              # overlap words between adjacent chunks (catches content that straddles boundaries)
   min_chunk_size: 400       # trailing remnants smaller than this merge into the previous chunk
   max_sentence_words: 120   # bisection floor: stop bisecting when sub-chunk fits a single sentence
   pause_gap_seconds: 1.5    # treat a gap >= this as a sentence boundary during bisection

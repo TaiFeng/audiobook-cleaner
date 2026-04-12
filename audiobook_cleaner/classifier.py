@@ -339,8 +339,18 @@ def classify_chunks(
             and chunk is not None
             and (chunk.end_time - chunk.start_time) > config.bisect_min_seconds
         ):
+            logger.info(
+                "Bisecting flagged chunk %d [%.2fs–%.2fs] (%.1fs) — drilling down for precise boundaries …",
+                chunk.index, chunk.start_time, chunk.end_time, chunk.end_time - chunk.start_time,
+            )
             classify_fn = lambda c, _cfg=config, _sens=sensitivity: _call_api(c, _cfg, _sens)
-            bisected = _bisect_chunk(chunk, classify_fn, config.bisect_min_seconds, config.bisect_max_depth)
+            bisected = _bisect_chunk(chunk, classify_fn, config.bisect_min_seconds, config.bisect_max_depth,
+                                     pause_gap_seconds=getattr(config, 'pause_gap_seconds', 1.5))
+            logger.info(
+                "Bisect chunk %d complete — %d sub-chunk(s) flagged, boundaries: %s",
+                chunk.index, len(bisected),
+                ", ".join(f"[{b.start_time:.2f}s–{b.end_time:.2f}s]" for b in bisected) or "none",
+            )
             results.extend(bisected)
         else:
             results.append(r)
@@ -500,7 +510,14 @@ def _bisect_chunk(
     as a fallback to avoid losing the detection.
     """
     duration = chunk.end_time - chunk.start_time
+    indent = "  " * depth
+    logger.debug(
+        "%sBisect depth=%d chunk=%d [%.2fs–%.2fs] (%.1fs, %d words)",
+        indent, depth, chunk.index, chunk.start_time, chunk.end_time, duration, len(chunk.words),
+    )
+
     if duration <= min_seconds or depth >= max_depth or len(chunk.words) < 2:
+        logger.debug("%s  → leaf reached (duration=%.1fs, depth=%d) — classifying.", indent, duration, depth)
         return [classify_fn(chunk)]
 
     mid = _find_sentence_split(chunk.words, pause_gap_seconds)
@@ -524,15 +541,31 @@ def _bisect_chunk(
         words=right_words,
     )
 
+    logger.debug(
+        "%s  → split at word %d: left [%.2fs–%.2fs] (%d words), right [%.2fs–%.2fs] (%d words)",
+        indent, mid,
+        left_chunk.start_time, left_chunk.end_time, left_chunk.word_count,
+        right_chunk.start_time, right_chunk.end_time, right_chunk.word_count,
+    )
+
     left_result = classify_fn(left_chunk)
     right_result = classify_fn(right_chunk)
 
     left_flagged = _is_flagged(left_result)
     right_flagged = _is_flagged(right_result)
 
+    logger.debug(
+        "%s  → left=%s (sev=%s conf=%.2f), right=%s (sev=%s conf=%.2f)",
+        indent,
+        "FLAGGED" if left_flagged else "clean", left_result.severity, left_result.confidence,
+        "FLAGGED" if right_flagged else "clean", right_result.severity, right_result.confidence,
+    )
+
     if not left_flagged and not right_flagged:
-        # Neither half flagged — return the original chunk classified at full span
-        # to avoid losing the detection
+        logger.info(
+            "Bisect chunk=%d depth=%d: both halves clean — falling back to full-span result [%.2fs–%.2fs].",
+            chunk.index, depth, chunk.start_time, chunk.end_time,
+        )
         return [classify_fn(chunk)]
 
     results = []
