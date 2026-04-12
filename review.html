@@ -313,7 +313,10 @@ header {
   text-transform: uppercase; letter-spacing: 0.06em;
   padding: 2px var(--space-2); border-radius: var(--radius-sm);
   margin-bottom: var(--space-2);
+  cursor: pointer;
+  transition: opacity var(--transition);
 }
+.card-action-label:hover { opacity: 0.8; }
 .label-remove { background: var(--remove-bg); color: var(--remove-text); border: 1px solid var(--remove-border); }
 .label-mute   { background: var(--mute-bg);   color: var(--mute-text);   border: 1px solid var(--mute-border); }
 .card-reason { font-size: var(--text-sm); color: var(--text-muted); margin-top: var(--space-1); }
@@ -443,20 +446,6 @@ input[type="range"]::-moz-range-thumb {
 .empty-title { font-size: var(--text-lg); font-weight: 600; color: var(--text); margin-bottom: var(--space-2); }
 .empty-sub { font-size: var(--text-sm); }
 
-/* ── Toast ──────────────────────────────────────────────────── */
-#toast {
-  position: fixed; bottom: var(--space-6); right: var(--space-6);
-  background: var(--text); color: var(--bg);
-  padding: var(--space-3) var(--space-5);
-  border-radius: var(--radius-md); font-size: var(--text-sm);
-  box-shadow: var(--shadow-lg);
-  transform: translateY(120%); opacity: 0;
-  transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.3s;
-  pointer-events: none; z-index: 1000;
-  max-width: 340px;
-}
-#toast.show { transform: translateY(0); opacity: 1; }
-
 /* ── Context window control ─────────────────────────────────── */
 .context-bar {
   display: flex; align-items: center; gap: var(--space-4);
@@ -479,6 +468,55 @@ input[type="range"]::-moz-range-thumb {
 }
 .filter-btn.active { background: var(--primary); color: var(--text-inverse); border-color: var(--primary); }
 .filter-btn:hover:not(.active) { background: var(--surface-offset); color: var(--text); }
+
+/* ── Toast & Modal ──────────────────────────────────────────── */
+#toast {
+  position: fixed; bottom: var(--space-6); right: var(--space-6);
+  background: var(--text); color: var(--bg);
+  padding: var(--space-3) var(--space-5);
+  border-radius: var(--radius-md); font-size: var(--text-sm);
+  box-shadow: var(--shadow-lg);
+  transform: translateY(120%); opacity: 0;
+  transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.3s;
+  pointer-events: none; z-index: 1000;
+  max-width: 340px;
+}
+#toast.show { transform: translateY(0); opacity: 1; }
+
+.modal-overlay {
+  position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0, 0, 0, 0.5); z-index: 2000;
+  display: flex; align-items: center; justify-content: center;
+  opacity: 0; pointer-events: none; transition: opacity var(--transition);
+  backdrop-filter: blur(2px);
+}
+.modal-overlay.show { opacity: 1; pointer-events: auto; }
+.modal {
+  background: var(--surface); padding: var(--space-6);
+  border-radius: var(--radius-lg); width: 90%; max-width: 550px;
+  box-shadow: var(--shadow-lg); border: 1px solid var(--border);
+  transform: translateY(20px); transition: transform var(--transition);
+}
+.modal-overlay.show .modal { transform: translateY(0); }
+.modal-title { font-size: var(--text-lg); font-weight: 600; margin-bottom: var(--space-3); color: var(--text); display: flex; align-items: center; gap: var(--space-2); }
+.modal-body { font-size: var(--text-sm); margin-bottom: var(--space-6); line-height: 1.6; color: var(--text); }
+.modal-actions { display: flex; justify-content: flex-end; gap: var(--space-3); }
+
+/* ── Manual Add Modal Tabs ─────────────────────────────────── */
+.add-tabs { display: flex; gap: var(--space-4); margin-bottom: var(--space-4); border-bottom: 1px solid var(--divider); }
+.add-tab-btn { padding: var(--space-2) 0; font-size: var(--text-sm); color: var(--text-muted); border-bottom: 2px solid transparent; cursor: pointer; transition: all var(--transition); }
+.add-tab-btn:hover { color: var(--text); }
+.add-tab-btn.active { color: var(--primary); font-weight: 600; border-bottom-color: var(--primary); }
+.add-tab-content { display: none; }
+.add-tab-content.active { display: block; }
+
+.add-search-row { display: flex; gap: var(--space-2); margin-bottom: var(--space-4); }
+.add-search-row input { flex: 1; padding: var(--space-2); border: 1px solid var(--border); border-radius: var(--radius-sm); font-size: var(--text-sm); background: var(--surface-2); color: var(--text); }
+.add-search-results { max-height: 300px; overflow-y: auto; display: flex; flex-direction: column; gap: var(--space-3); padding-right: var(--space-2); }
+.search-result { background: var(--surface-offset); padding: var(--space-3); border-radius: var(--radius-sm); border: 1px solid var(--border); }
+.search-result-text { font-family: var(--font-mono); font-size: var(--text-xs); margin-bottom: var(--space-2); line-height: 1.6; }
+.search-result-actions { display: flex; justify-content: space-between; align-items: center; }
+.search-result-time { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-muted); }
 </style>
 </head>
 <body>
@@ -499,6 +537,12 @@ input[type="range"]::-moz-range-thumb {
       </svg>
     </button>
     <button class="btn btn-ghost" id="btn-reload" style="display:none" onclick="resetToLoad()">Load different files</button>
+    <button class="btn btn-ghost" id="btn-add" style="display:none" onclick="openAddEditModal()">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="margin-right:2px">
+        <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+      </svg>
+      Add Edit
+    </button>
     <button class="btn btn-primary" id="btn-save" style="display:none" onclick="saveEdl()">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
         <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/>
@@ -561,6 +605,82 @@ input[type="range"]::-moz-range-thumb {
 
 <div id="toast"></div>
 
+<!-- Validation Alert Modal Overlay -->
+<div id="modal-overlay" class="modal-overlay">
+  <div class="modal">
+    <h3 id="modal-title" class="modal-title">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--remove-text)" stroke-width="2">
+        <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+      </svg>
+      Validation Error
+    </h3>
+    <div id="modal-body" class="modal-body"></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal()">Dismiss</button>
+    </div>
+  </div>
+</div>
+
+<!-- Manual Add Modal Overlay -->
+<div id="add-edit-modal" class="modal-overlay">
+  <div class="modal" style="max-width: 600px;">
+    <h3 class="modal-title" style="margin-bottom: var(--space-4);">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line>
+      </svg>
+      Add Manual Edit
+    </h3>
+    
+    <div class="modal-body" style="margin-bottom: 0;">
+      <!-- Action & Reason config -->
+      <div class="context-bar" style="margin: -var(--space-6) -var(--space-6) var(--space-4); border-top-left-radius: var(--radius-lg); border-top-right-radius: var(--radius-lg); padding: var(--space-4) var(--space-6);">
+        <label style="margin-right:auto;">Action &amp; Reason</label>
+        <select id="add-action-sel" style="background:var(--surface-2); border:1px solid var(--border); border-radius:var(--radius-sm); padding:var(--space-1) var(--space-2); color:var(--text); font-size:var(--text-xs);">
+          <option value="mute">Mute</option>
+          <option value="remove">Remove</option>
+        </select>
+        <input type="text" id="add-reason-inp" placeholder="Reason (optional)" style="background:var(--surface-2); border:1px solid var(--border); border-radius:var(--radius-sm); padding:var(--space-1) var(--space-2); color:var(--text); font-size:var(--text-xs); width:150px;"/>
+      </div>
+
+      <!-- Mode Tabs -->
+      <div class="add-tabs">
+        <div class="add-tab-btn active" onclick="switchAddTab('search')">Search Transcript</div>
+        <div class="add-tab-btn" onclick="switchAddTab('time')">Manual Time</div>
+      </div>
+
+      <!-- Tab: Search -->
+      <div id="add-tab-search" class="add-tab-content active">
+        <div class="add-search-row">
+          <input type="text" id="add-search-inp" placeholder="Enter word, phrase, or /regex/" onkeydown="if(event.key==='Enter') doAddSearch()" />
+          <button class="btn btn-primary" onclick="doAddSearch()">Search</button>
+        </div>
+        <div id="add-search-results" class="add-search-results">
+           <div class="empty-sub">Enter a query above to search the loaded transcript.</div>
+        </div>
+      </div>
+
+      <!-- Tab: Time -->
+      <div id="add-tab-time" class="add-tab-content">
+         <div class="slider-row" style="margin-bottom:var(--space-4)">
+           <div class="slider-time-label">Start (s)</div>
+           <input type="number" id="add-time-start" step="0.001" min="0" placeholder="0.000" style="width:100%; padding:var(--space-2); background:var(--surface-2); border:1px solid var(--border); color:var(--text); font-family:var(--font-mono); font-size:var(--text-sm); border-radius:var(--radius-sm); outline:none;"/>
+         </div>
+         <div class="slider-row" style="margin-bottom:var(--space-4)">
+           <div class="slider-time-label">End (s)</div>
+           <input type="number" id="add-time-end" step="0.001" min="0" placeholder="0.000" style="width:100%; padding:var(--space-2); background:var(--surface-2); border:1px solid var(--border); color:var(--text); font-family:var(--font-mono); font-size:var(--text-sm); border-radius:var(--radius-sm); outline:none;"/>
+         </div>
+         <div style="text-align:right;">
+           <button class="btn btn-primary" onclick="doAddTime()">Add Edit at Time</button>
+         </div>
+      </div>
+    </div>
+    
+    <div class="modal-actions" style="margin-top:var(--space-6); border-top:1px solid var(--divider); padding-top:var(--space-4);">
+      <button class="btn btn-ghost" onclick="closeAddEditModal()">Close</button>
+    </div>
+  </div>
+</div>
+
 <script>
 // ── State ─────────────────────────────────────────────────────
 let edlData = null;
@@ -569,6 +689,10 @@ let edits = [];         // working copy, mutated by sliders/toggles
 let origEdits = [];     // deep copy of original for reset
 let edlFilename = 'edl_adjusted.json';
 let activeFilter = 'all';
+
+// Text mapping for advanced searching
+let fullTxString = "";
+let txIndexMap = []; // maps string char indexes back to word object indexes
 
 // ── Theme toggle ─────────────────────────────────────────────
 (function() {
@@ -584,6 +708,40 @@ let activeFilter = 'all';
       : '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>';
   });
 })();
+
+// ── Modal Handlers ───────────────────────────────────────────
+function showModal(title, htmlBody) {
+  document.getElementById('modal-body').innerHTML = htmlBody;
+  document.getElementById('modal-overlay').classList.add('show');
+}
+function closeModal() {
+  document.getElementById('modal-overlay').classList.remove('show');
+}
+
+// ── Manual Edit Modal Handlers ───────────────────────────────
+function openAddEditModal() {
+  document.getElementById('add-edit-modal').classList.add('show');
+  switchAddTab('search');
+}
+
+function closeAddEditModal() {
+  document.getElementById('add-edit-modal').classList.remove('show');
+}
+
+function switchAddTab(tab) {
+  document.querySelectorAll('.add-tab-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.add-tab-content').forEach(c => c.classList.remove('active'));
+  
+  if (tab === 'search') {
+    document.querySelectorAll('.add-tab-btn')[0].classList.add('active');
+    document.getElementById('add-tab-search').classList.add('active');
+    document.getElementById('add-search-inp').focus();
+  } else {
+    document.querySelectorAll('.add-tab-btn')[1].classList.add('active');
+    document.getElementById('add-tab-time').classList.add('active');
+    document.getElementById('add-time-start').focus();
+  }
+}
 
 // ── File loading ─────────────────────────────────────────────
 let loadedEdl = false, loadedTx = false;
@@ -607,6 +765,15 @@ function loadFile(evt, type) {
         // transcript is array of words or object with words key
         txWords = Array.isArray(data) ? data : (data.words || data.segments || []);
         loadedTx = true;
+        
+        // Pre-compute string mapping for fast phrase searching
+        fullTxString = "";
+        txIndexMap = [];
+        txWords.forEach((w, i) => {
+           txIndexMap.push({ charStart: fullTxString.length, wordIdx: i });
+           fullTxString += w.word + " ";
+        });
+
         const dz = document.getElementById('dz-tx');
         dz.classList.add('loaded');
         const nm = document.getElementById('dz-tx-name');
@@ -636,11 +803,12 @@ function dzDrop(e, type) {
 function startReview() {
   if (!loadedEdl) { toast('Please load an edl.json first.'); return; }
 
-  // Build working edits array — support both old and new EDL format
+  // Build working edits array — mapping the raw object
   const rawEdits = edlData.edits || [];
   edits = rawEdits.map((e, i) => ({
     idx: i,
-    edit_number: e.edit_number || (i + 1),
+    raw: e, // keep raw object to preserve any arbitrary metadata keys on save
+    edit_number: e.edit_number || String(i + 1),
     action: e.action || edlData.mode || 'mute',
     start: e.start,
     end: e.end,
@@ -652,11 +820,16 @@ function startReview() {
     confidence: e.confidence ?? null,
     disabled: false,
   }));
+  
+  // Sort them chronologically just in case
+  edits.sort((a,b) => a.start - b.start);
+  edits.forEach((e, i) => e.idx = i); // correct active indexes
   origEdits = JSON.parse(JSON.stringify(edits));
 
   document.getElementById('load-screen').style.display = 'none';
   document.getElementById('review-screen').style.display = 'block';
   document.getElementById('btn-save').style.display = '';
+  document.getElementById('btn-add').style.display = '';
   document.getElementById('btn-reload').style.display = '';
 
   const removeCount = edits.filter(e => e.action === 'remove').length;
@@ -671,8 +844,10 @@ function resetToLoad() {
   document.getElementById('load-screen').style.display = 'flex';
   document.getElementById('review-screen').style.display = 'none';
   document.getElementById('btn-save').style.display = 'none';
+  document.getElementById('btn-add').style.display = 'none';
   document.getElementById('btn-reload').style.display = 'none';
   edlData = null; txWords = []; edits = []; origEdits = [];
+  fullTxString = ""; txIndexMap = [];
   loadedEdl = false; loadedTx = false;
   document.getElementById('dz-edl').classList.remove('loaded');
   document.getElementById('dz-tx').classList.remove('loaded');
@@ -682,6 +857,145 @@ function resetToLoad() {
   document.getElementById('fi-edl').value = '';
   document.getElementById('fi-tx').value = '';
   document.getElementById('header-meta').textContent = 'No files loaded';
+}
+
+// ── Search & Adding Edits Logic ───────────────────────────────
+function getWordIdxAtChar(charIdx) {
+  // Binary search to find which word contains this character index
+  let low = 0, high = txIndexMap.length - 1;
+  while (low <= high) {
+    let mid = (low + high) >> 1;
+    if (txIndexMap[mid].charStart <= charIdx) {
+      if (mid === txIndexMap.length - 1 || txIndexMap[mid+1].charStart > charIdx) {
+        return txIndexMap[mid].wordIdx;
+      }
+      low = mid + 1;
+    } else {
+      high = mid - 1;
+    }
+  }
+  return 0;
+}
+
+function doAddSearch() {
+  const q = document.getElementById('add-search-inp').value.trim();
+  const resEl = document.getElementById('add-search-results');
+  if (!q) { resEl.innerHTML = '<div class="empty-sub">Please enter a search term.</div>'; return; }
+  if (!txWords.length) { resEl.innerHTML = '<div class="empty-sub">No transcript loaded to search.</div>'; return; }
+
+  let isRegex = false, regex;
+  if (q.startsWith('/') && q.endsWith('/') && q.length > 2) {
+    isRegex = true;
+    try { regex = new RegExp(q.slice(1,-1), 'gi'); }
+    catch(e) { resEl.innerHTML = '<div class="empty-sub" style="color:var(--remove-text)">Invalid regular expression.</div>'; return; }
+  } else {
+    // Escape string for simple match
+    regex = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
+  }
+
+  let results = [];
+  let match;
+  let limit = 30; // limit matches so UI doesn't lag
+  
+  while ((match = regex.exec(fullTxString)) !== null && results.length < limit) {
+     let startChar = match.index;
+     let endChar = match.index + match[0].length - 1;
+     
+     let startWordIdx = getWordIdxAtChar(startChar);
+     let endWordIdx = getWordIdxAtChar(endChar);
+     
+     results.push({
+       startWordIdx, endWordIdx,
+       start: txWords[startWordIdx].start,
+       end: txWords[endWordIdx].end,
+       matchText: match[0]
+     });
+  }
+
+  if (!results.length) { resEl.innerHTML = '<div class="empty-sub">No matches found in transcript.</div>'; return; }
+
+  resEl.innerHTML = results.map((r, i) => {
+     const ctxWordsCnt = parseInt(document.getElementById('ctx-words').value) || 50;
+     const ctxBefore = txWords.slice(Math.max(0, r.startWordIdx - ctxWordsCnt), r.startWordIdx).map(w=>w.word).join(' ');
+     const ctxMatch = txWords.slice(r.startWordIdx, r.endWordIdx + 1).map(w=>w.word).join(' ');
+     const ctxAfter = txWords.slice(r.endWordIdx + 1, Math.min(txWords.length, r.endWordIdx + ctxWordsCnt + 1)).map(w=>w.word).join(' ');
+
+     return `
+     <div class="search-result">
+       <div class="search-result-text">
+         <span class="word-context">...${escHtml(ctxBefore)} </span>
+         <strong style="color:var(--text); background:var(--primary-hi); padding: 0 2px; border-radius: 2px;">${escHtml(ctxMatch)}</strong>
+         <span class="word-context"> ${escHtml(ctxAfter)}...</span>
+       </div>
+       <div class="search-result-actions">
+         <div class="search-result-time">${fmt(r.start)} &rarr; ${fmt(r.end)}</div>
+         <button class="btn btn-ghost" style="padding:2px 8px; font-size:var(--text-xs)" onclick="insertNewEdit(${r.start}, ${r.end})">Add Edit</button>
+       </div>
+     </div>
+     `;
+  }).join('');
+}
+
+function doAddTime() {
+  const start = parseFloat(document.getElementById('add-time-start').value);
+  const end = parseFloat(document.getElementById('add-time-end').value);
+  insertNewEdit(start, end);
+}
+
+function insertNewEdit(start, end) {
+  if (isNaN(start) || isNaN(end) || start >= end) {
+    toast('Invalid time range. Start must be less than End.');
+    return;
+  }
+
+  const action = document.getElementById('add-action-sel').value;
+  const reason = document.getElementById('add-reason-inp').value.trim();
+
+  // Create numeric ID sequence finding the highest existing edit number
+  const maxNum = edits.length > 0 ? Math.max(...edits.map(e => {
+    let n = parseInt(e.edit_number);
+    return isNaN(n) ? 0 : n;
+  })) : 0;
+  
+  const newEditNum = maxNum + 1;
+
+  const newEdit = {
+    idx: edits.length, // temporary
+    raw: {}, // no original EDL mapping info
+    edit_number: newEditNum.toString(),
+    action: action,
+    start: start,
+    end: end,
+    origStart: start,
+    origEnd: end,
+    reason: reason || 'Manual edit',
+    source: 'manual',
+    severity: 'manual',
+    confidence: 1.0,
+    disabled: false
+  };
+
+  edits.push(newEdit);
+  
+  // Sort chronologically
+  edits.sort((a,b) => a.start - b.start);
+  // Reassign idx index strictly
+  edits.forEach((e, i) => e.idx = i);
+  origEdits = JSON.parse(JSON.stringify(edits));
+
+  closeAddEditModal();
+  renderAll();
+
+  // Update header count details
+  const removeCount = edits.filter(x => x.action === 'remove').length;
+  const muteCount   = edits.filter(x => x.action === 'mute').length;
+  document.getElementById('header-meta').textContent =
+    `${edits.length} edits — ${removeCount} remove, ${muteCount} mute`;
+
+  // Focus to the new card
+  const finalIdx = edits.findIndex(e => e.edit_number === newEdit.edit_number);
+  setTimeout(() => scrollToCard(finalIdx), 150);
+  toast('Edit added successfully');
 }
 
 // ── Filter ────────────────────────────────────────────────────
@@ -770,9 +1084,9 @@ function buildCard(e) {
     <div class="card-header">
       <div class="card-num ${e.action}">${e.edit_number}</div>
       <div class="card-meta">
-        <div class="card-action-label label-${e.action}">
+        <button class="card-action-label label-${e.action}" onclick="toggleAction(${e.idx})" title="Click to swap action">
           ${e.action === 'remove' ? '✂ Remove' : '🔇 Mute'}
-        </div>
+        </button>
         ${e.reason ? `<div class="card-reason">${escHtml(e.reason)}</div>` : ''}
         ${e.severity ? `<div class="card-severity">Severity: ${e.severity}${e.confidence !== null ? ` · Confidence: ${Math.round(e.confidence * 100)}%` : ''}</div>` : ''}
       </div>
@@ -860,7 +1174,7 @@ function attachSliders(e) {
     return best ?? t;
   }
 
-  // --- NEW: Custom keyboard handler to jump between snaps ---
+  // --- Custom keyboard handler to jump between snaps ---
   function getNextSnap(current, type, dir) {
     // Get all valid snap points for this type (starts or ends)
     const points = vicinity.map(w => type === 'start' ? w.start : w.end);
@@ -906,6 +1220,7 @@ function attachSliders(e) {
       updateCardFooter(e);
       rerenderTranscript(e);
       updateSidebarItem(e);
+      focusEditField(e.idx, type); // Keep in view
     }
   }
 
@@ -935,6 +1250,7 @@ function attachSliders(e) {
     updateCardFooter(e);
     rerenderTranscript(e);
     updateSidebarItem(e);
+    focusEditField(e.idx, 'start'); // Keep in view
   });
 
   slEnd.addEventListener('input', () => {
@@ -959,7 +1275,34 @@ function attachSliders(e) {
     updateCardFooter(e);
     rerenderTranscript(e);
     updateSidebarItem(e);
+    focusEditField(e.idx, 'end'); // Keep in view
   });
+}
+
+// ── Auto-scroll logic ─────────────────────────────────────────
+function focusEditField(idx, type) {
+  // Use a tiny timeout to allow the DOM to re-render the transcript before reading its new bounds
+  setTimeout(() => {
+    const txBox = document.getElementById(`tx-${idx}`);
+    const slider = document.getElementById(`sl-${type}-${idx}`);
+    const wordClass = type === 'start' ? '.word-edge-start' : '.word-edge-end';
+    const wordEl = txBox ? txBox.querySelector(wordClass) : null;
+
+    // We prioritize scrolling to the active transcript word, falling back to the slider
+    const targetEl = wordEl || slider;
+    if (!targetEl) return;
+
+    const rect = targetEl.getBoundingClientRect();
+    const headerOffset = 100; // Account for the sticky header
+    const bottomOffset = 40;
+    
+    // Check if the target is out of view
+    const isOutOfView = rect.top < headerOffset || rect.bottom > (window.innerHeight || document.documentElement.clientHeight) - bottomOffset;
+
+    if (isOutOfView) {
+      targetEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }, 10);
 }
 
 function updateCardFooter(e) {
@@ -1055,6 +1398,49 @@ function toggleEdit(idx) {
   si && si.classList.toggle('disabled', e.disabled);
 }
 
+function toggleAction(idx) {
+  const e = edits[idx];
+  
+  // Swap the action
+  e.action = e.action === 'remove' ? 'mute' : 'remove';
+
+  // If a filter is currently active, re-render the list to keep the view accurate
+  if (activeFilter !== 'all') {
+    renderAll();
+  } else {
+    // If viewing 'all', do targeted DOM updates to prevent losing scroll position
+    const card = document.getElementById(`card-${idx}`);
+    if (card) {
+      const num = card.querySelector('.card-num');
+      if (num) num.className = `card-num ${e.action}`;
+      
+      const label = card.querySelector('.card-action-label');
+      if (label) {
+        label.className = `card-action-label label-${e.action}`;
+        label.innerHTML = e.action === 'remove' ? '✂ Remove' : '🔇 Mute';
+      }
+    }
+
+    const si = document.getElementById(`si-${idx}`);
+    if (si) {
+      const badge = si.querySelector('.sidebar-badge');
+      if (badge) badge.className = `sidebar-badge badge-${e.action}`;
+      
+      const dur = si.querySelector('.sidebar-item-dur');
+      if (dur) dur.textContent = `${fmtDur(e.end - e.start)} · ${e.action}`;
+    }
+    
+    // Update the sidebar stats
+    renderSidebar();
+  }
+
+  // Update the main header counts
+  const removeCount = edits.filter(x => x.action === 'remove').length;
+  const muteCount   = edits.filter(x => x.action === 'mute').length;
+  document.getElementById('header-meta').textContent =
+    `${edits.length} edits — ${removeCount} remove, ${muteCount} mute`;
+}
+
 function resetEdit(idx) {
   const e = edits[idx];
   const orig = origEdits[idx];
@@ -1069,6 +1455,15 @@ function resetEdit(idx) {
   updateCardFooter(e);
   rerenderTranscript(e);
   updateSidebarItem(e);
+  
+  // Optional: Center the card on reset if it's out of bounds
+  const card = document.getElementById(`card-${idx}`);
+  if (card) {
+    const rect = card.getBoundingClientRect();
+    if (rect.top < 100 || rect.bottom > window.innerHeight - 40) {
+      card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+  }
 }
 
 function scrollToCard(idx) {
@@ -1080,20 +1475,52 @@ function scrollToCard(idx) {
 function saveEdl() {
   if (!edlData) { toast('No EDL loaded.'); return; }
 
-  // Build updated edl — preserve all top-level keys, update edits array
+  // 1. Validate for overlapping 'remove' segments
+  const activeRemoves = edits.filter(e => !e.disabled && e.action === 'remove');
+  const overlaps = [];
+  
+  for (let i = 0; i < activeRemoves.length; i++) {
+    for (let j = i + 1; j < activeRemoves.length; j++) {
+      const e1 = activeRemoves[i];
+      const e2 = activeRemoves[j];
+      
+      // Determine if the two time ranges overlap (exclusive of exact boundary matches)
+      if (Math.max(e1.start, e2.start) < Math.min(e1.end, e2.end)) {
+        overlaps.push(`Section <strong>${e1.edit_number}</strong> and Section <strong>${e2.edit_number}</strong>`);
+      }
+    }
+  }
+
+  // If there are overlaps, alert the user and abort the save
+  if (overlaps.length > 0) {
+    showModal(
+      'Cannot Save: Overlapping Removes',
+      'Please resolve the following overlapping "Remove" sections before saving. You can adjust their times, mute them, or disable them.<br><br>' + 
+      overlaps.map(o => `• ${o}`).join('<br>')
+    );
+    return;
+  }
+
+  // 2. Build updated edl — use active filtered edits mapped over their raw properties
   const activeEdits = edits.filter(e => !e.disabled);
-  const updatedEdits = edlData.edits.map((orig, i) => {
-    const e = edits.find(x => x.idx === i);
-    if (!e || e.disabled) return null;
+  const updatedEdits = activeEdits.map(e => {
+    // We preserve original metadata on this edit (if any) or generate base keys
+    const orig = e.raw || {};
     return {
       ...orig,
+      edit_number: e.edit_number,
+      action: e.action,
       start: e.start,
       end: e.end,
       start_formatted: fmt(e.start),
       end_formatted: fmt(e.end),
       duration: parseFloat((e.end - e.start).toFixed(3)),
+      reason: e.reason,
+      source: e.source,
+      severity: e.severity,
+      confidence: e.confidence
     };
-  }).filter(Boolean);
+  });
 
   const muteEdits   = updatedEdits.filter(e => (e.action || edlData.mode) === 'mute');
   const removeEdits = updatedEdits.filter(e => (e.action || edlData.mode) === 'remove');
