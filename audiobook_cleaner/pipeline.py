@@ -187,7 +187,25 @@ class Pipeline:
     ) -> None:
         inp = Path(input_path)
         ranges = load_edl(edl_path)
-        mode = self.config.output.mode
+
+        # Auto-detect mode from EDL action fields so `clean` always applies
+        # the correct passes without requiring -m to be specified.
+        # An explicit -m flag on the CLI overrides this via config.output.mode.
+        actions = {r.action for r in ranges}
+        explicit_mode = self.config.output.mode  # set by -m if user passed it
+        if explicit_mode in ("remove", "mute_then_remove"):
+            # User explicitly chose a mode — honour it
+            mode = explicit_mode
+        elif "mute" in actions and "remove" in actions:
+            mode = "mute_then_remove"
+        elif "remove" in actions:
+            mode = "remove"
+        else:
+            mode = "mute"
+        logger.info("EDL contains %d mute + %d remove ranges → auto-selected mode '%s'.",
+                    sum(1 for r in ranges if r.action == "mute"),
+                    sum(1 for r in ranges if r.action == "remove"),
+                    mode)
 
         if not output_path:
             suffix = inp.suffix

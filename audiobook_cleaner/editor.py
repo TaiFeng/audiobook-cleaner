@@ -342,6 +342,13 @@ def apply_edits(
     probe = probe_audio(input_path)
     extra = _build_codec_args(probe, suffix, bitrate, sample_rate, channels)
 
+    mute_count   = sum(1 for r in ranges if r.action == "mute")
+    remove_count = sum(1 for r in ranges if r.action == "remove")
+    logger.info(
+        "Applying edits — mode='%s'  mute=%d ranges  remove=%d ranges  total=%d ranges.",
+        mode, mute_count, remove_count, len(ranges),
+    )
+
     if mode == "mute":
         _apply_mute(input_path, output_path, ranges, extra)
     elif mode == "remove":
@@ -359,13 +366,17 @@ def apply_edits(
             tmp_path = Path(tmp.name)
             tmp.close()
             try:
+                logger.info("Pass 1/2 — mute: silencing %d range(s) …", len(mute_ranges))
                 _apply_mute(input_path, tmp_path, mute_ranges, extra)
+                logger.info("Pass 2/2 — remove: cutting %d range(s) in reverse order …", len(remove_ranges))
                 _apply_remove(tmp_path, output_path, remove_ranges, extra)
             finally:
                 tmp_path.unlink(missing_ok=True)
         elif mute_ranges:
+            logger.info("No remove ranges — mute pass only (%d ranges).", len(mute_ranges))
             _apply_mute(input_path, output_path, mute_ranges, extra)
         elif remove_ranges:
+            logger.info("No mute ranges — remove pass only (%d ranges).", len(remove_ranges))
             _apply_remove(input_path, output_path, remove_ranges, extra)
         else:
             shutil.copy2(input_path, output_path)
