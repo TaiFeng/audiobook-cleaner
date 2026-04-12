@@ -101,12 +101,9 @@ def build_ranges_from_results(
             )
             continue
 
-        # Use tighter segment timestamps when available
-        start = r.segment_start if r.segment_start is not None and r.segment_end is not None else r.start_time
-        end = r.segment_end if r.segment_start is not None and r.segment_end is not None else r.end_time
         ranges.append(FlaggedRange(
-            start=start,
-            end=end,
+            start=r.start_time,
+            end=r.end_time,
             reason=r.reason,
             source="classifier",
             severity=r.severity,
