@@ -41,13 +41,13 @@ class TranscriptionConfig:
 
 @dataclass
 class ChunkingConfig:
-    chunk_size: int = 800         # target words per chunk
-    overlap: int = 200            # overlap words between adjacent chunks
-    min_chunk_size: int = 300
+    chunk_size: int = 800         # target words per chunk (first-pass coarse scan)
+    overlap: int = 0              # no overlap needed; bisection handles precision on flagged chunks
+    min_chunk_size: int = 400     # trailing remnants smaller than this merge into previous chunk
     max_chunk_size: int = 1500
-    chunk_mode: str = "sentence"        # "sentence" (recommended) or "fixed"
-    max_sentence_words: int = 120       # max words per sentence-chunk before forcing a split
-    pause_gap_seconds: float = 1.5      # treat a gap >= this as a sentence boundary
+    chunk_mode: str = "fixed"           # "fixed" (recommended) or "sentence"
+    max_sentence_words: int = 120       # bisection floor: stop bisecting when sub-chunk fits a single sentence
+    pause_gap_seconds: float = 1.5      # treat a gap >= this as a sentence boundary during bisection
 
 
 @dataclass

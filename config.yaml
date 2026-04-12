@@ -12,15 +12,18 @@ transcription:
   language: "en"
   batch_size: 16             # Lower this if you run out of VRAM (try 4 or 8)
 
-# --- Chunking ------------------------------------------------
+# --- Chunking (two-tier strategy) ----------------------------
+# First pass: large fixed-window chunks (~800 words) for coarse detection
+#   → ~250 API calls for a full audiobook
+# Second pass (bisection): only flagged chunks get drilled into,
+#   stopping at sentence boundaries rather than arbitrary word-index halves
 chunking:
-  chunk_mode: sentence       # 'sentence' (recommended) or 'fixed'
-  max_sentence_words: 120    # max words per sentence-chunk before forcing a split
-  pause_gap_seconds: 1.5     # treat a gap >= this as a sentence boundary
-  chunk_size: 800            # Target words per chunk sent to the classifier (fixed mode)
-  overlap: 200               # Words of overlap between adjacent chunks (fixed mode)
-  min_chunk_size: 300        # Minimum words (smaller remnants merge into previous chunk)
-  max_chunk_size: 1500       # Hard ceiling
+  chunk_mode: fixed          # first-pass coarse chunking mode: 'fixed' (recommended) or 'sentence'
+  chunk_size: 800           # words per chunk for first pass (~250 chunks for a full audiobook)
+  overlap: 0                # no overlap needed; bisection handles precision on flagged chunks
+  min_chunk_size: 400       # trailing remnants smaller than this merge into the previous chunk
+  max_sentence_words: 120   # bisection floor: stop bisecting when sub-chunk fits a single sentence
+  pause_gap_seconds: 1.5    # treat a gap >= this as a sentence boundary during bisection
 
 # --- Profanity (word-level) ----------------------------------
 profanity:

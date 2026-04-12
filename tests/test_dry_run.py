@@ -182,6 +182,7 @@ def test_full_dry_run_pipeline(tmp_path):
     config.chunking.chunk_mode = "fixed"
     config.chunking.chunk_size = 50
     config.chunking.overlap = 10
+    config.chunking.min_chunk_size = 10
     config.sensitivity = "moderate"
 
     # Build combined transcript

@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, asdict
@@ -460,12 +461,35 @@ def _is_flagged(result: ChunkResult, min_confidence: float = 0.3) -> bool:
     return result.severity != "none" and result.confidence >= min_confidence
 
 
+def _find_sentence_split(words, pause_gap_seconds=1.5):
+    """
+    Find the best split point in a word list.
+    Prefer a sentence boundary near the midpoint.
+    Falls back to midpoint if no sentence boundary found.
+    Returns the split index (left = words[:idx], right = words[idx:]).
+    """
+    mid = len(words) // 2
+    # Search outward from midpoint for a sentence boundary
+    for offset in range(mid):
+        for i in [mid - offset, mid + offset]:
+            if 0 < i < len(words):
+                w = words[i - 1]
+                # Terminal punctuation boundary
+                if re.search(r'[.!?]["\']?$', w.word.strip()):
+                    return i
+                # Long pause boundary
+                if i < len(words) and (words[i].start - w.end) >= pause_gap_seconds:
+                    return i
+    return mid  # fallback to midpoint
+
+
 def _bisect_chunk(
     chunk: Chunk,
     classify_fn,
     min_seconds: float,
     max_depth: int,
     depth: int = 0,
+    pause_gap_seconds: float = 1.5,
 ) -> List[ChunkResult]:
     """
     Recursively bisect a flagged chunk to find the minimal sub-chunk
@@ -479,7 +503,7 @@ def _bisect_chunk(
     if duration <= min_seconds or depth >= max_depth or len(chunk.words) < 2:
         return [classify_fn(chunk)]
 
-    mid = len(chunk.words) // 2
+    mid = _find_sentence_split(chunk.words, pause_gap_seconds)
     left_words = chunk.words[:mid]
     right_words = chunk.words[mid:]
 
@@ -513,8 +537,8 @@ def _bisect_chunk(
 
     results = []
     if left_flagged:
-        results.extend(_bisect_chunk(left_chunk, classify_fn, min_seconds, max_depth, depth + 1))
+        results.extend(_bisect_chunk(left_chunk, classify_fn, min_seconds, max_depth, depth + 1, pause_gap_seconds))
     if right_flagged:
-        results.extend(_bisect_chunk(right_chunk, classify_fn, min_seconds, max_depth, depth + 1))
+        results.extend(_bisect_chunk(right_chunk, classify_fn, min_seconds, max_depth, depth + 1, pause_gap_seconds))
 
     return results
