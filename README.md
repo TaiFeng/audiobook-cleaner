@@ -139,7 +139,7 @@ python main.py run -i book.m4b --report-only
 Review the CSV/JSON reports in the output directory, then apply edits:
 
 ```bash
-python main.py clean -i book.m4b --edl "book_cleaned/edl.json"
+python main.py clean -i book.m4b --edl "book_cleaned/report/edl.json"
 ```
 
 ### Edit modes
@@ -162,7 +162,7 @@ python main.py run -i book.m4b -m mute_then_remove # both passes (default)
 The `clean` subcommand defaults to `mute` for backward compatibility with existing EDLs:
 
 ```bash
-python main.py clean -i book.m4b --edl book_cleaned/edl.json -m mute_then_remove
+python main.py clean -i book.m4b --edl book_cleaned/report/edl.json -m mute_then_remove
 ```
 
 ### Override sensitivity and mode
@@ -320,7 +320,7 @@ After a full run, the output directory contains:
 3. **Edit the EDL** manually if needed (it is plain JSON).
 4. **Apply edits** when satisfied:
    ```bash
-   python main.py clean -i book.m4b --edl book_cleaned/edl.json -m mute_then_remove
+   python main.py clean -i book.m4b --edl book_cleaned/report/edl.json -m mute_then_remove
    ```
 
 ---
