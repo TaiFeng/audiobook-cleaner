@@ -171,6 +171,56 @@ python main.py clean -i book.m4b --edl book_cleaned/report/edl.json -m mute_then
 python main.py run -i book.mp3 -s strict -m remove
 ```
 
+### Batch processing
+
+Process a directory of chapter files in one command:
+
+```bash
+# All MP3 and M4B files in a directory, each cleaned independently
+python main.py batch --input-dir ./chapters --output-dir ./cleaned
+
+# Explicit file list
+python main.py batch chapter01.mp3 chapter02.mp3 chapter03.mp3 --output-dir ./cleaned
+
+# Join mode — combines transcripts across all files before classifying
+# (catches content that spans a chapter boundary)
+python main.py batch --input-dir ./chapters --join --output-dir ./cleaned
+
+# Report only — inspect what would be cut before committing
+python main.py batch --input-dir ./chapters --report-only --output-dir ./cleaned
+
+# Custom glob pattern (e.g. only MP3s)
+python main.py batch --input-dir ./chapters --pattern "*.mp3" --output-dir ./cleaned
+```
+
+Batch output layout (independent mode):
+```
+cleaned/
+  chapter01_clean.mp3
+  chapter01_cleaned/    ← transcript, report, edl.json
+  chapter02_clean.mp3
+  chapter02_cleaned/
+```
+
+Join mode adds a `_batch_join_report/` folder containing a combined EDL and report across all files.
+
+### Using a custom config
+
+`config.yaml` controls every tunable setting — transcription model, chunk size, sensitivity thresholds, API endpoint, and more. Point any command at a custom file with `-c`:
+
+```bash
+# Use a strict config for one book without changing the default
+python main.py run -i book.m4b -c strict-config.yaml
+
+# Override just the sensitivity on top of your default config
+python main.py run -i book.m4b -s strict
+
+# Combine a custom config with a sensitivity override
+python main.py batch --input-dir ./chapters -c my-config.yaml -s minimal
+```
+
+See the [Configuration Guide](#configuration-guide) below for all available settings.
+
 ---
 
 ## CLI Reference
@@ -184,13 +234,31 @@ python main.py run -i book.mp3 -s strict -m remove
 | `dry-run` | Validate pipeline with mock data |
 | `batch` | Process multiple files; use `--join` for cross-boundary detection |
 
-Common flags: `-i INPUT`, `-o OUTPUT`, `-c CONFIG`, `-s SENSITIVITY`, `-m MODE` (`mute` / `remove` / `mute_then_remove`), `-v` (verbose), `--report-only`.
+Common flags for `run`, `clean`, `batch`:
+
+| Flag | Description |
+|---|---|
+| `-i INPUT` | Input audio file |
+| `-o OUTPUT` | Output file path (default: `<stem>_clean<ext>` next to input) |
+| `-c CONFIG` | Path to a custom `config.yaml` (default: `config.yaml` in project root) |
+| `-s SENSITIVITY` | `strict` / `moderate` (default) / `minimal` |
+| `-m MODE` | `mute` / `remove` / `mute_then_remove` (default for `run`/`batch`) |
+| `-v` | Verbose logging (shows bisection drill-down detail) |
+| `--report-only` | Generate report without writing audio output |
+
+Flags specific to `batch`:
+
+| Flag | Description |
+|---|---|
+| `--input-dir DIR` | Directory to glob files from |
+| `--pattern GLOB` | Comma-separated glob patterns (default: `*.mp3,*.m4b`) |
+| `--join` | Combine all transcripts before classifying (cross-boundary detection) |
 
 ---
 
 ## Configuration Guide
 
-All settings live in `config.yaml`.  Key sections:
+All settings live in `config.yaml` in the project root.  Edit it directly, or pass a custom file with `-c path/to/config.yaml`.  The file is heavily commented — open it for the full reference.  Key sections are summarised below.
 
 ### Sensitivity
 
@@ -202,8 +270,34 @@ All settings live in `config.yaml`.  Key sections:
 
 ### Chunking
 
-- `chunk_size`: Words per chunk (default 800).  Larger = fewer API calls but less precise time boundaries.
-- `overlap`: Words shared between adjacent chunks (default 200).  Ensures content at boundaries is not missed.
+| Setting | Default | Effect |
+|---|---|---|
+| `mode` | `fixed` | `fixed` = large first-pass chunks; `sentence` = one sentence per chunk |
+| `chunk_size` | `800` | Words per chunk for the first pass (~175–250 chunks for a full audiobook) |
+| `overlap` | `200` | Words shared between adjacent chunks — prevents missing content at boundaries |
+| `min_chunk_size` | `400` | Small trailing remnants below this word count merge into the previous chunk |
+| `max_sentence_words` | `120` | Bisection stops recursing when a sub-chunk fits within a single sentence |
+| `pause_gap_seconds` | `1.5` | Gap ≥ this value is treated as a sentence boundary during bisection |
+
+### AI Bisection (precision drill-down)
+
+When the classifier flags a chunk, it recursively bisects it to find the exact offending sentence:
+
+| Setting | Default | Effect |
+|---|---|---|
+| `bisect` | `true` | Enable/disable bisection drill-down |
+| `bisect_min_seconds` | `5.0` | Stop bisecting when sub-chunk is shorter than this |
+| `bisect_max_depth` | `6` | Maximum recursion depth (64× finer resolution at depth 6) |
+
+Raise `bisect_min_seconds` to `10`–`15` if your local model is slow, to reduce the number of extra API calls.
+
+### Content categories
+
+| Setting | Default | Effect |
+|---|---|---|
+| `screen_blasphemy` | `true` | Flag religious names/concepts used as expletives or curses |
+
+The four core categories (explicit sex, graphic violence, drug content, mature themes) are always active.  Disable bisection or adjust sensitivity to tune aggressiveness per category.
 
 ### Classification backend
 
@@ -233,15 +327,14 @@ The prompt asks for a JSON response with:
   "contains_graphic_violence": true,
   "contains_drug_content": false,
   "contains_mature_themes": false,
+  "contains_blasphemy": false,
   "severity": "moderate",
   "confidence": 0.85,
-  "reason": "Detailed description of battlefield injuries and gore.",
-  "segment_start": 142.3,
-  "segment_end": 198.7
+  "reason": "Detailed description of battlefield injuries and gore."
 }
 ```
 
-`segment_start` and `segment_end` identify the tightest timestamp boundaries within the chunk where the objectionable content occurs. The editor uses these for precise cuts instead of cutting the entire chunk span. Both are `null` if the entire chunk is flagged.
+Timestamp precision comes from bisection drill-down rather than asking the model to estimate offsets — the chunk passed to the model is already sentence-sized after bisection, so its own start/end times become the cut boundaries.
 
 Sensitivity guidance is injected per chunk so the model's threshold shifts with your chosen preset.
 
