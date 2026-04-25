@@ -296,6 +296,26 @@ class Pipeline:
         output_dir = Path(output_dir) if output_dir else input_path.parent
         return output_dir / f"{input_path.stem}_cleaned"
 
+    def _run_batch_from_edl(self, files, output_dir, report_only: bool):
+        """Apply existing edl.json files to each file — no transcription or classification."""
+        if report_only:
+            logger.warning("--report-only has no effect with --from-edl (EDLs already exist). Proceeding normally.")
+
+        failures = []
+        for f in files:
+            f = Path(f)
+            work_dir = self._batch_work_dir(f, output_dir)
+            edl_path = work_dir / "edl.json"
+            if not edl_path.exists():
+                logger.warning("No EDL found for %s — skipping. Expected: %s", f.name, edl_path)
+                continue
+            out_path = self._batch_output_path(f, output_dir)
+            try:
+                self.run_clean(input_path=str(f), edl_path=str(edl_path), output_path=str(out_path))
+            except Exception as e:
+                failures.append((str(f), str(e)))
+        _batch_summary(files, failures)
+
     def _run_batch_independent(self, files, output_dir, report_only: bool):
         """Process each file independently through the full pipeline."""
         failures = []
@@ -412,7 +432,7 @@ class Pipeline:
 
         _batch_summary(files, failures)
 
-    def run_batch(self, input_files, output_dir=None, join: bool = False, report_only: bool = False):
+    def run_batch(self, input_files, output_dir=None, join: bool = False, report_only: bool = False, from_edl: bool = False):
         """
         Process multiple audiobook files in batch.
 
@@ -421,15 +441,18 @@ class Pipeline:
             output_dir:  Directory for cleaned files and work dirs. If None, output lives next to each source.
             join:        If True, combine transcripts across all files before classifying (catches cross-boundary content).
             report_only: If True, run the full pipeline but skip writing audio output.
+            from_edl:    If True, skip transcription/classification and apply existing edl.json files directly.
         """
         files = [Path(f) for f in input_files]
         if not files:
             logger.warning("run_batch called with no files.")
             return
 
-        logger.info(f"Batch processing {len(files)} file(s). join={join}, report_only={report_only}")
+        logger.info(f"Batch processing {len(files)} file(s). join={join}, report_only={report_only}, from_edl={from_edl}")
 
-        if join:
+        if from_edl:
+            self._run_batch_from_edl(files, output_dir, report_only)
+        elif join:
             self._run_batch_join(files, output_dir, report_only)
         else:
             self._run_batch_independent(files, output_dir, report_only)

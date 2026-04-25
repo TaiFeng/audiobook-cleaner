@@ -193,6 +193,16 @@ python main.py batch --input-dir ./chapters --report-only --output-dir ./cleaned
 python main.py batch --input-dir ./chapters --pattern "*.mp3" --output-dir ./cleaned
 ```
 
+### Applying EDLs after a report-only batch run
+
+After reviewing and adjusting the EDL files (via `review.html` or manually), apply them all in one pass:
+
+```bash
+python main.py batch --input-dir ./chapters --output-dir ./cleaned --from-edl
+```
+
+Each file's `<stem>_cleaned/edl.json` is located automatically. Files with no EDL are skipped with a warning. Mode (mute / remove / mute_then_remove) is detected automatically from each EDL's action fields.
+
 Batch output layout (independent mode):
 ```
 cleaned/
@@ -253,6 +263,7 @@ Flags specific to `batch`:
 | `--input-dir DIR` | Directory to glob files from |
 | `--pattern GLOB` | Comma-separated glob patterns (default: `*.mp3,*.m4b`) |
 | `--join` | Combine all transcripts before classifying (cross-boundary detection) |
+| `--from-edl` | Skip transcription/classification — apply existing `edl.json` files directly |
 
 ---
 

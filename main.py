@@ -104,6 +104,9 @@ def build_parser() -> argparse.ArgumentParser:
     p_ba.add_argument("-m", "--mode", choices=["mute", "remove", "mute_then_remove"],
                        default="mute_then_remove",
                        help="Edit mode: mute (silence), remove (cut), or mute_then_remove (two-pass)")
+    p_ba.add_argument("--from-edl", action="store_true", dest="from_edl",
+                       help="Skip transcription and classification — apply existing edl.json files directly. "
+                            "Use after a --report-only run once you have reviewed and adjusted the EDLs.")
     p_ba.add_argument("-c", "--config", default="config.yaml", help="Path to config YAML")
     p_ba.add_argument("-v", "--verbose", action="store_true")
 
@@ -174,6 +177,7 @@ def main() -> None:
                 output_dir=args.output_dir,
                 join=args.join,
                 report_only=args.report_only,
+                from_edl=args.from_edl,
             )
     except KeyboardInterrupt:
         logging.getLogger(__name__).warning("Interrupted by user.")
