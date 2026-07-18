@@ -449,4 +449,4 @@ After a full run, the output directory contains:
 
 ## License
 
-This project is provided as-is for personal use.  No warranty.
+This project is provided as-is for personal use under an MIT license.  No warranty.
