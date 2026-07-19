@@ -441,9 +441,13 @@ After a full run, the output directory contains:
 
 ## Caveats
 
-- **M4B chapter metadata** is not preserved in the cleaned output.  Re-add chapters with tools like `mp4chaps` if needed.
+- **M4B chapter metadata** may not be preserved in the cleaned output.  Re-add chapters with tools like `mp4chaps` if needed.
 - **WhisperX alignment** may occasionally miss or mis-time words, especially with heavy accents or background music.  Review the transcript for critical passages.
 - **AI classification is not perfect.**  Always review the report before sharing cleaned audio with children.  The tool is designed as an assistant, not a guarantee.
+- **Pipeline might require a specific version range of FFmpeg (e.g., <7.0).** Consider using a Python virtual environment (e.g., VENV) to support this.
+  ```bash
+  source myenv/bin/activate
+  ```
 
 ---
 
